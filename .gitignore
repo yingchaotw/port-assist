@@ -1,0 +1,17 @@
+# Rust build artifacts
+src-tauri/target/
+
+# WebView2 runtime user data
+.webview2-data/
+dist/.webview2-data/
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Archives
+*.zip
+dist/*.zip
+
+# macOS
+.DS_Store

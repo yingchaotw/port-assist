@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AccessPort (Rust Edition) - RS232/422/485 + TCP/UDP 通訊調試助手</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Unified Custom Titlebar (App Menu + Multi-Port Session Tabs + Window Controls) -->
+  <header class="titlebar" id="titlebar">
+    <!-- Left: App Logo & Classic Menu -->
+    <div class="titlebar-left">
+      <div class="app-logo" id="app-logo-drag" title="AccessPort (Rust Edition) — 按住可拖曳視窗">
+        <span class="logo-box">AP</span>
+      </div>
+      <div class="menubar">
+        <div class="menu-item" data-menu="file">
+          <span>檔案(F)</span>
+          <div class="menu-dropdown">
+            <button id="menu-new-session">新增串口分頁 (Ctrl+T)</button>
+            <button id="menu-close-session">關閉目前分頁 (Ctrl+W)</button>
+            <div class="menu-sep"></div>
+            <button id="menu-load-tx">載入檔案至發送區...</button>
+            <button id="menu-save-rx-bin">匯出接收數據 (Binary/.bin)...</button>
+            <button id="menu-save-rx-txt">匯出接收十六進位報表 (.txt)...</button>
+            <div class="menu-sep"></div>
+            <button id="menu-clear-all">全部清空 (RX &amp; TX)</button>
+          </div>
+        </div>
+        <div class="menu-item" data-menu="view">
+          <span>檢視(V)</span>
+          <div class="menu-dropdown">
+            <button data-rx-mode="dual">接收區：Hex + ASCII 並排 (經典)</button>
+            <button data-rx-mode="hex">接收區：僅十六進位 (Hex)</button>
+            <button data-rx-mode="text">接收區：純文字模式 (ASCII/UTF-8)</button>
+            <div class="menu-sep"></div>
+            <button id="menu-toggle-packets">切換分包時間戳記視圖</button>
+            <div class="menu-sep"></div>
+            <button data-font-size="12" class="menu-font-btn">字體大小：小 (12px)</button>
+            <button data-font-size="14" class="menu-font-btn">字體大小：中 (14px)</button>
+            <button data-font-size="16" class="menu-font-btn">字體大小：大 (16px)</button>
+          </div>
+        </div>
+        <div class="menu-item" data-menu="op">
+          <span>操作(O)</span>
+          <div class="menu-dropdown">
+            <button id="menu-toggle-port">開啟 / 關閉串口 (F2)</button>
+            <button id="menu-send-now">立即傳送數據 (F5)</button>
+            <div class="menu-sep"></div>
+            <button id="menu-reset-counters">重置 RX/TX 計數器</button>
+          </div>
+        </div>
+        <div class="menu-item" data-menu="help">
+          <span>說明(H)</span>
+          <div class="menu-dropdown">
+            <button id="menu-about">關於 AccessPort Rust Edition</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: Scrollable Session Tabs + Pinned '+' Button + Draggable Space -->
+    <div class="titlebar-tabs-area" id="titlebar-tabs-area">
+      <button id="btn-tabs-left" class="tab-scroll-btn hidden" title="向左捲動分頁">‹</button>
+      <div class="session-tabs-list" id="session-tabs-list" title="滑鼠滾輪可左右捲動分頁；雙擊分頁可改名"></div>
+      <button id="btn-tabs-right" class="tab-scroll-btn hidden" title="向右捲動分頁">›</button>
+      <button id="btn-new-session" class="new-session-btn" title="新增串口分頁 (Ctrl+T)">＋</button>
+      <div class="titlebar-drag-spacer" id="titlebar-drag-spacer" title="按住拖曳視窗，雙擊切換最大化"></div>
+    </div>
+
+    <!-- Right: Theme Toggle, Connection Summary & Window Control Buttons -->
+    <div class="titlebar-right">
+      <button id="btn-theme-toggle" class="theme-toggle-btn" title="切換深色 / 明亮模式">🌙 深色</button>
+      <span class="session-summary" id="session-summary" title="目前已開啟串口連線數 / 總分頁數">0/1 連線</span>
+      <div class="win-controls">
+        <button id="btn-win-min" class="win-btn" title="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5h8" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button id="btn-win-max" class="win-btn" title="最大化 / 還原">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button id="btn-win-close" class="win-btn win-close" title="關閉視窗">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Body: Left Settings Sidebar + Right Split Workspace -->
+  <div class="app-body">
+  <!-- Left Settings Sidebar -->
+  <section class="toolbar" id="left-sidebar">
+    <div class="sidebar-section-title">通訊連線設定</div>
+
+    <!-- Communication Protocol Type Selector -->
+    <div class="param-group conn-type-group">
+      <label for="sel-conn-type">協議</label>
+      <select id="sel-conn-type" title="選擇連線模式：串口 COM / TCP 客戶端 / TCP 伺服器 / UDP / PCAN">
+        <option value="serial" selected>串口 (COM)</option>
+        <option value="tcp_client">TCP Client</option>
+        <option value="tcp_server">TCP Server</option>
+        <option value="udp">UDP</option>
+        <option value="pcan">PCAN (CAN 2.0)</option>
+      </select>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- Serial Port Parameters Container -->
+    <div class="params-serial" id="params-serial">
+      <div class="param-group">
+        <label for="sel-port">串口</label>
+        <div class="port-select-wrap">
+          <select id="sel-port" title="選擇 COM Port"></select>
+          <button id="btn-refresh-ports" class="icon-btn" title="重新掃描串口">↻</button>
+        </div>
+      </div>
+
+      <div class="param-group">
+        <label for="inp-baud">波特率</label>
+        <div class="baud-combo" id="baud-combo">
+          <input
+            type="number"
+            id="inp-baud"
+            value="115200"
+            min="50"
+            max="12000000"
+            step="1"
+            placeholder="自訂波特率"
+            title="可直接輸入任意自訂波特率 (bps)，或點擊右側箭頭選擇常用波特率"
+          />
+          <button type="button" id="btn-baud-dropdown" class="baud-drop-btn" title="選擇預設波特率">▾</button>
+          <div class="baud-menu hidden" id="baud-menu">
+            <div class="baud-menu-header">常用 / 工業標準波特率 (亦可直接輸入)</div>
+            <button type="button" data-baud="1200">1200</button>
+            <button type="button" data-baud="2400">2400</button>
+            <button type="button" data-baud="4800">4800</button>
+            <button type="button" data-baud="9600">9600</button>
+            <button type="button" data-baud="14400">14400</button>
+            <button type="button" data-baud="19200">19200</button>
+            <button type="button" data-baud="38400">38400</button>
+            <button type="button" data-baud="57600">57600</button>
+            <button type="button" data-baud="74880">74880 (ESP8266)</button>
+            <button type="button" data-baud="115200" class="active">115200 (預設)</button>
+            <button type="button" data-baud="128000">128000</button>
+            <button type="button" data-baud="230400">230400</button>
+            <button type="button" data-baud="250000">250000 (DMX/3D列印)</button>
+            <button type="button" data-baud="256000">256000</button>
+            <button type="button" data-baud="460800">460800</button>
+            <button type="button" data-baud="500000">500000</button>
+            <button type="button" data-baud="921600">921600</button>
+            <button type="button" data-baud="1000000">1000000 (1 Mbps)</button>
+            <button type="button" data-baud="1500000">1500000 (1.5 Mbps)</button>
+            <button type="button" data-baud="2000000">2000000 (2 Mbps)</button>
+            <button type="button" data-baud="3000000">3000000 (3 Mbps)</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="param-group">
+        <label for="sel-parity">校驗位</label>
+        <select id="sel-parity">
+          <option value="None" selected>None</option>
+          <option value="Odd">Odd</option>
+          <option value="Even">Even</option>
+        </select>
+      </div>
+
+      <div class="param-group">
+        <label for="sel-databits">數據位</label>
+        <select id="sel-databits">
+          <option value="8" selected>8</option>
+          <option value="7">7</option>
+          <option value="6">6</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+
+      <div class="param-group">
+        <label for="sel-stopbits">停止位</label>
+        <select id="sel-stopbits">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+        </select>
+      </div>
+
+      <div class="param-group">
+        <label for="sel-flow">流控</label>
+        <select id="sel-flow">
+          <option value="None" selected>None</option>
+          <option value="Software">XON/XOFF</option>
+          <option value="Hardware">RTS/CTS</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Network Parameters Container (TCP Client / TCP Server / UDP) -->
+    <div class="params-net hidden" id="params-net">
+      <!-- TCP Client Fields -->
+      <div class="net-row" id="net-fields-tcp-client">
+        <div class="param-group">
+          <label for="inp-tcp-client-host">目標 IP/主機</label>
+          <input type="text" id="inp-tcp-client-host" value="127.0.0.1" placeholder="127.0.0.1" style="width: 110px;" />
+        </div>
+        <div class="param-group">
+          <label for="inp-tcp-client-port">目標 Port</label>
+          <input type="number" id="inp-tcp-client-port" value="8080" min="1" max="65535" style="width: 68px;" />
+        </div>
+      </div>
+
+      <!-- TCP Server Fields -->
+      <div class="net-row hidden" id="net-fields-tcp-server">
+        <div class="param-group">
+          <label for="inp-tcp-server-port">監聽 Port</label>
+          <input type="number" id="inp-tcp-server-port" value="8080" min="1" max="65535" style="width: 68px;" />
+        </div>
+        <div class="param-group">
+          <label for="inp-tcp-server-host">監聽 IP</label>
+          <input type="text" id="inp-tcp-server-host" value="0.0.0.0" placeholder="0.0.0.0" style="width: 85px;" />
+        </div>
+        <span class="byte-pill" id="net-server-clients-pill" title="目前已連入的 TCP 客戶端數量">0 客戶端</span>
+      </div>
+
+      <!-- UDP Fields -->
+      <div class="net-row hidden" id="net-fields-udp">
+        <div class="param-group">
+          <label for="inp-udp-local-port" title="本地監聽 Port (輸入 0 由系統隨機指派)">本地 Port</label>
+          <input type="number" id="inp-udp-local-port" value="8081" min="0" max="65535" placeholder="0 自動" style="width: 68px;" />
+        </div>
+        <div class="param-group">
+          <label for="inp-udp-host">目標 IP</label>
+          <input type="text" id="inp-udp-host" value="127.0.0.1" placeholder="127.0.0.1" style="width: 100px;" />
+        </div>
+        <div class="param-group">
+          <label for="inp-udp-port">目標 Port</label>
+          <input type="number" id="inp-udp-port" value="8080" min="1" max="65535" style="width: 68px;" />
+        </div>
+      </div>
+    </div>
+
+    <!-- PCAN Parameters Container (Classic CAN 2.0A/B) -->
+    <div class="params-net hidden" id="params-pcan">
+      <div class="param-group">
+        <label for="sel-pcan-channel">PCAN 通道</label>
+        <div class="port-select-wrap">
+          <select id="sel-pcan-channel" title="選擇 PEAK PCAN-USB 通道">
+            <option value="PCAN_USBBUS1" selected>PCAN_USBBUS1</option>
+            <option value="PCAN_USBBUS2">PCAN_USBBUS2</option>
+            <option value="PCAN_USBBUS3">PCAN_USBBUS3</option>
+            <option value="PCAN_USBBUS4">PCAN_USBBUS4</option>
+            <option value="PCAN_USBBUS5">PCAN_USBBUS5</option>
+            <option value="PCAN_USBBUS6">PCAN_USBBUS6</option>
+            <option value="PCAN_USBBUS7">PCAN_USBBUS7</option>
+            <option value="PCAN_USBBUS8">PCAN_USBBUS8</option>
+          </select>
+          <button id="btn-refresh-pcan" class="icon-btn" title="掃描 PCAN 硬體通道">↻</button>
+        </div>
+      </div>
+      <div class="param-group">
+        <label for="sel-pcan-baud">CAN 波特率</label>
+        <select id="sel-pcan-baud" title="選擇 Classic CAN 2.0 波特率">
+          <option value="1000000">1000 kbps (1M)</option>
+          <option value="800000">800 kbps</option>
+          <option value="500000" selected>500 kbps</option>
+          <option value="250000">250 kbps</option>
+          <option value="125000">125 kbps</option>
+          <option value="100000">100 kbps</option>
+          <option value="50000">50 kbps</option>
+          <option value="20000">20 kbps</option>
+          <option value="10000">10 kbps</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- Port Open/Close Toggle -->
+    <button id="btn-port-toggle" class="tool-btn primary-toggle" title="開啟/關閉連線 (F2)">
+      <span class="led" id="port-led"></span>
+      <span id="port-toggle-label">開啟串口</span>
+    </button>
+
+    <!-- PCAN TX Frame Settings (Shown only in PCAN mode) -->
+    <div class="tx-can-bar hidden" id="tx-can-bar">
+      <div class="toolbar-divider"></div>
+      <div class="sidebar-section-title">CAN 發送設定</div>
+      <div class="param-group">
+        <label for="inp-can-tx-id">CAN ID</label>
+        <input type="text" id="inp-can-tx-id" value="7DF" maxlength="8" placeholder="7DF" title="輸入 Hex CAN ID（標準幀 0~7FF，擴展幀 0~1FFFFFFF）" />
+      </div>
+      <div class="param-group">
+        <label for="sel-can-tx-type">幀類型</label>
+        <select id="sel-can-tx-type" title="選擇 CAN 幀類型">
+          <option value="std" selected>標準幀 (11-bit)</option>
+          <option value="ext">擴展幀 (29-bit)</option>
+          <option value="rtr_std">遠端幀 RTR (11-bit)</option>
+          <option value="rtr_ext">遠端幀 RTR (29-bit)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- Receive Display & Frame Segmentation Settings -->
+    <div class="sidebar-section-title">接收設定</div>
+    <div class="sidebar-rx-settings">
+      <div class="sidebar-check-row">
+        <label class="checkbox-label" title="啟用或停用自動斷幀">
+          <input type="checkbox" id="chk-frame-break" checked />
+          <span>自動斷幀</span>
+        </label>
+        <label class="checkbox-label" title="收到新數據時自動捲動至底部">
+          <input type="checkbox" id="chk-rx-autoscroll" checked />
+          <span>自動捲動</span>
+        </label>
+      </div>
+      <div class="sidebar-check-row">
+        <label class="checkbox-label" title="在每一列顯示收發時間戳記 (HH:MM:SS.mmm) 與 RX/TX 方向標籤">
+          <input type="checkbox" id="chk-show-timestamp" checked />
+          <span>時間戳記</span>
+        </label>
+        <label class="checkbox-label" title="在接收視圖中同步穿插顯示發送 (TX) 的數據幀與發送時間戳">
+          <input type="checkbox" id="chk-show-tx-inline" checked />
+          <span>顯示 TX</span>
+        </label>
+      </div>
+
+      <div class="param-group">
+        <label for="sel-frame-rule">斷幀模式</label>
+        <select id="sel-frame-rule" title="選擇自動斷幀判斷模式">
+          <option value="timeout_maxlen" selected>超時 + 最大幀長</option>
+          <option value="delimiter">結尾碼 + 超時</option>
+          <option value="fixed_len">純固定幀長</option>
+        </select>
+      </div>
+
+      <div class="param-group" id="wrap-frame-timeout">
+        <label for="inp-frame-timeout">超時時間</label>
+        <div class="sidebar-input-unit">
+          <input
+            type="number"
+            id="inp-frame-timeout"
+            value="20"
+            min="1"
+            max="60000"
+            step="5"
+            title="斷幀超時時間 (ms)：超過此時間未收滿最大幀長（或未收到結尾碼）即自動斷幀"
+          />
+          <span class="unit">ms</span>
+        </div>
+      </div>
+
+      <div class="param-group" id="wrap-frame-delim" style="display: none;">
+        <label for="inp-frame-delim">結尾特徵</label>
+        <input
+          type="text"
+          id="inp-frame-delim"
+          value="0D 0A"
+          placeholder="Hex 如 0D 0A"
+          title="結尾特徵碼 (Hex)：遇到此位元組序列立即斷幀（例如 0D 0A 或 7E）"
+        />
+      </div>
+
+      <div class="param-group" id="wrap-frame-maxlen">
+        <label for="inp-frame-maxlen" id="lbl-frame-maxlen">最大幀長</label>
+        <div class="sidebar-input-unit">
+          <input
+            type="number"
+            id="inp-frame-maxlen"
+            value="0"
+            min="0"
+            max="4096"
+            step="1"
+            title="最長幀數/最大長度 (Bytes)：0 = 不限長度；設為 N 時，收滿 N Bytes 立即斷幀，若超時時間內未收滿 N Bytes 也會自動斷幀"
+          />
+          <span class="unit">B</span>
+        </div>
+      </div>
+
+      <div class="param-group">
+        <label for="sel-frame-layout">排列方式</label>
+        <select id="sel-frame-layout" title="選擇排列方式：每幀一行不折行（超過16B也不換行，方便上下對齊比較）或固定每行 16/32 Bytes">
+          <option value="frame_single" selected>每幀一行(不折行)</option>
+          <option value="continuous_16">固定16B連續</option>
+          <option value="continuous_32">固定32B連續</option>
+          <option value="frame_wrap16">每幀換行(16B折)</option>
+        </select>
+      </div>
+
+      <button type="button" id="btn-rx-pause" class="tool-btn sidebar-pause-btn" title="暫停更新接收畫面（背景仍持續接收，取消暫停後立即渲染所有累積幀並繼續捲動）">⏸ 暫停畫面</button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- Hardware Control Lines (Moved from statusbar so RX/TX counters never cause jitter) -->
+    <div class="sidebar-section-title">流控訊號線</div>
+    <div class="sidebar-lines">
+      <div class="sidebar-lines-row">
+        <button class="line-toggle" id="btn-line-dtr" title="點擊切換 DTR 輸出電位">
+          <span class="led" id="led-dtr"></span>
+          <span>DTR</span>
+        </button>
+        <button class="line-toggle" id="btn-line-rts" title="點擊切換 RTS 輸出電位">
+          <span class="led" id="led-rts"></span>
+          <span>RTS</span>
+        </button>
+      </div>
+      <div class="sidebar-lines-indicators">
+        <div class="line-indicator" title="Clear To Send 狀態">
+          <span class="led" id="led-cts"></span>
+          <span>CTS</span>
+        </div>
+        <div class="line-indicator" title="Data Set Ready 狀態">
+          <span class="led" id="led-dsr"></span>
+          <span>DSR</span>
+        </div>
+        <div class="line-indicator" title="Carrier Detect 狀態">
+          <span class="led" id="led-cd"></span>
+          <span>CD</span>
+        </div>
+        <div class="line-indicator" title="Ring Indicator 狀態">
+          <span class="led" id="led-ri"></span>
+          <span>RI</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Resizable Sidebar Splitter -->
+  <div class="sidebar-splitter" id="sidebar-splitter" title="左右拖曳調整左側設定欄寬度"></div>
+
+  <!-- Main Split Workspace (Upper: Receive, Lower: Transmit) -->
+  <main class="workspace" id="workspace">
+    <!-- UPPER PANE: RECEIVE -->
+    <section class="pane rx-pane" id="rx-pane">
+      <div class="pane-header">
+        <div class="pane-title">
+          <span>接收區</span>
+          <span class="frame-count-tag" id="rx-frame-count">0 幀</span>
+        </div>
+        <div class="pane-controls">
+          <div class="seg-group" id="rx-mode-group">
+            <button class="seg-btn active" data-mode="dual" title="AccessPort 經典 Hex + ASCII 並排顯示">Hex+ASCII</button>
+            <button class="seg-btn" data-mode="hex" title="僅顯示十六進位">純Hex</button>
+            <button class="seg-btn" data-mode="text" title="純文字終端顯示">純文字</button>
+            <button class="seg-btn" data-mode="packets" title="顯示每次收發封包時間戳記與方向">日誌</button>
+          </div>
+          <button id="btn-copy-rx-hex" class="mini-btn" title="複製接收區 Hex">複製Hex</button>
+          <button id="btn-copy-rx-text" class="mini-btn" title="複製接收區文字">複製文字</button>
+          <button id="btn-save-rx-log" class="mini-btn" title="儲存接收區資料（含時間戳記、方向與 Hex/ASCII）">儲存日誌</button>
+          <button id="btn-clear-rx" class="mini-btn" title="清空接收緩衝區">清空接收</button>
+        </div>
+      </div>
+
+      <!-- Receive Content Viewport (Ruler sticky inside viewport for 100% horizontal & vertical sync) -->
+      <div class="rx-viewport show-ts" id="rx-viewport">
+        <!-- Column Ruler for Classic Hex + ASCII View -->
+        <div class="hex-ruler" id="rx-hex-ruler">
+          <span class="row-ts" id="ruler-ts-col">Time / Dir</span>
+          <span class="row-offset">Offset</span>
+          <span class="row-hex" id="ruler-hex-cols"></span>
+          <span class="row-ascii" id="ruler-ascii-cols"></span>
+        </div>
+        <!-- Dual / Hex Grid Container -->
+        <div class="hex-grid" id="rx-hex-grid"></div>
+        <!-- Plain Text Container -->
+        <pre class="text-view hidden" id="rx-text-view"></pre>
+        <!-- Packet Timeline Log Container -->
+        <div class="packet-view hidden" id="rx-packet-view"></div>
+      </div>
+
+      <!-- Dedicated Bottom Cursor & Frame Inspector Bar (Never overlaps header controls) -->
+      <div class="rx-inspector-bar">
+        <span class="inspector-label">游標檢視：</span>
+        <span class="inspector-val" id="rx-selection-info">滑鼠指向或點擊任一 Byte 以檢視位址、所屬數據幀、Hex / Dec / Bin 與 ASCII 資訊</span>
+      </div>
+    </section>
+
+    <!-- RESIZABLE SPLITTER -->
+    <div class="splitter" id="pane-splitter" title="上下拖曳調整接收區與發送區高度">
+      <div class="splitter-grip"></div>
+    </div>
+
+    <!-- LOWER PANE: TRANSMIT -->
+    <section class="pane tx-pane" id="tx-pane">
+      <div class="pane-header tx-header">
+        <div class="tx-tabs">
+          <button class="tx-tab active" data-txtab="editor">主發送區 (Hex / ASCII 同步編輯)</button>
+          <button class="tx-tab" data-txtab="datalist">多組快捷發送 (CharList)</button>
+        </div>
+
+        <div class="pane-controls" id="tx-editor-controls">
+          <!-- SCPI Command Palette Dropdown -->
+          <div class="scpi-combo" id="scpi-combo">
+            <button type="button" id="btn-scpi-menu" class="mini-btn scpi-btn" title="選擇常用的 SCPI 標準儀器指令填入發送區">SCPI 指令 ▾</button>
+            <div class="scpi-menu hidden" id="scpi-menu">
+              <div class="scpi-menu-header">IEEE 488.2 通用查詢</div>
+              <button type="button" data-scpi="*IDN?">*IDN? - 查詢設備資訊</button>
+              <button type="button" data-scpi="*RST">*RST - 設備復位</button>
+              <button type="button" data-scpi="*CLS">*CLS - 清除狀態/錯誤</button>
+              <button type="button" data-scpi="*OPC?">*OPC? - 操作完成查詢</button>
+              <button type="button" data-scpi="*ESR?">*ESR? - 事件狀態查詢</button>
+              <button type="button" data-scpi="*STB?">*STB? - 狀態字元查詢</button>
+              <button type="button" data-scpi="*TST?">*TST? - 自我檢測</button>
+
+              <div class="scpi-menu-header">系統與模式控制</div>
+              <button type="button" data-scpi=":SYST:ERR?">:SYST:ERR? - 讀取系統錯誤</button>
+              <button type="button" data-scpi=":SYST:VERS?">:SYST:VERS? - SCPI 版本</button>
+              <button type="button" data-scpi=":SYST:REM">:SYST:REM - 進入遠端控制</button>
+              <button type="button" data-scpi=":SYST:LOC">:SYST:LOC - 退出至本機控制</button>
+              <button type="button" data-scpi=":SYST:BEEP">:SYST:BEEP - 蜂鳴聲</button>
+
+              <div class="scpi-menu-header">電源 / 輸出控制</div>
+              <button type="button" data-scpi=":OUTP ON">:OUTP ON - 開啟輸出</button>
+              <button type="button" data-scpi=":OUTP OFF">:OUTP OFF - 關閉輸出</button>
+              <button type="button" data-scpi=":OUTP?">:OUTP? - 查詢輸出開關</button>
+              <button type="button" data-scpi=":VOLT 5.000">:VOLT 5.000 - 設定電壓 (5V)</button>
+              <button type="button" data-scpi=":VOLT?">:VOLT? - 查詢設定電壓</button>
+              <button type="button" data-scpi=":CURR 1.000">:CURR 1.000 - 設定電流 (1A)</button>
+              <button type="button" data-scpi=":CURR?">:CURR? - 查詢設定電流</button>
+
+              <div class="scpi-menu-header">量測讀取 (Measure)</div>
+              <button type="button" data-scpi=":MEAS:VOLT?">:MEAS:VOLT? - 量測電壓</button>
+              <button type="button" data-scpi=":MEAS:CURR?">:MEAS:CURR? - 量測電流</button>
+              <button type="button" data-scpi=":MEAS:POW?">:MEAS:POW? - 量測功率</button>
+              <button type="button" data-scpi=":MEAS:RES?">:MEAS:RES? - 量測電阻</button>
+            </div>
+          </div>
+
+          <label class="checkbox-label" title="傳送時自動在結尾附加 CR LF (0D 0A)">
+            <input type="checkbox" id="chk-tx-crlf" />
+            <span>附加 \r\n (0D 0A)</span>
+          </label>
+          <button id="btn-clear-tx" class="mini-btn" title="清空發送緩衝區">清空發送</button>
+          <span class="byte-pill" id="tx-length-pill">長度: 0 Bytes</span>
+        </div>
+      </div>
+
+      <!-- Tab 1: Classic Dual Hex + ASCII Editor -->
+      <div class="tx-tab-body" id="tx-tab-editor">
+        <div class="tx-dual-editor">
+          <!-- Left: Hex Byte Editor -->
+          <div class="tx-subpane tx-hex-subpane">
+            <div class="subpane-bar">
+              <span>十六進位編輯區 (Hex) — 00~0F 拆格對齊</span>
+              <div class="subpane-bar-right">
+                <span class="subpane-hint" id="tx-hex-status">格式正常</span>
+                <button type="button" id="btn-tx-hex-view" class="mini-btn" title="切換「拆格編輯」或「純文字編輯」">文字模式</button>
+              </div>
+            </div>
+            <div class="tx-hex-grid-wrap" id="tx-hex-grid-wrap">
+              <div class="tx-hex-ruler" id="tx-hex-ruler">
+                <span class="row-offset">Offset</span>
+                <span class="row-hex" id="tx-ruler-hex-cols"></span>
+              </div>
+              <div class="tx-hex-grid" id="tx-hex-grid"></div>
+            </div>
+            <div class="tx-hex-wrap hidden" id="tx-hex-wrap">
+              <div class="tx-offset-gutter" id="tx-offset-gutter">00000000</div>
+              <textarea
+                id="tx-hex-input"
+                class="mono-textarea hex-textarea"
+                spellcheck="false"
+                placeholder="輸入十六進位 (例如: 41 42 43 0D 0A)..."
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- Right: ASCII / UTF-8 Text Editor -->
+          <div class="tx-subpane tx-ascii-subpane">
+            <div class="subpane-bar">
+              <span>字元編輯區 (ASCII / UTF-8) — 與左側 Hex 即時雙向同步</span>
+              <span class="subpane-hint">非列印字元在預覽中顯示為 '.'</span>
+            </div>
+            <textarea
+              id="tx-ascii-input"
+              class="mono-textarea ascii-textarea"
+              spellcheck="false"
+              placeholder="在此輸入文字，左側 Hex 將即時同步更新..."
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: AccessPort Multi-Send DataList (CharList) -->
+      <div class="tx-tab-body hidden" id="tx-tab-datalist">
+        <div class="datalist-toolbar">
+          <button id="btn-add-row" class="mini-btn">+ 新增指令列</button>
+          <button id="btn-load-scpi-template" class="mini-btn" title="載入儀器常見 SCPI 測試與巡檢指令範本至清單">載入 SCPI 範本</button>
+          <button id="btn-import-datalist" class="mini-btn" title="從 Serial Assistant ExCommand (.ini) 檔案匯入指令列表">匯入 (.ini)</button>
+          <input type="file" id="inp-import-datalist" accept=".ini,.txt" style="display: none;" />
+          <button id="btn-export-datalist" class="mini-btn" title="將目前指令列表匯出為 Serial Assistant ExCommand (.ini) 檔案">匯出 (.ini)</button>
+          <span class="datalist-tip">提示：勾選項目後開啟下方「定時發送」，即可按順序循環發送多組指令。</span>
+        </div>
+        <div class="datalist-table-wrap">
+          <table class="datalist-table">
+            <thead>
+              <tr>
+                <th style="width: 42px;">循環</th>
+                <th style="width: 140px;">備註名稱</th>
+                <th style="width: 90px;">格式</th>
+                <th>發送內容 (Hex 或 ASCII)</th>
+                <th style="width: 90px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="datalist-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bottom Timed / Auto Send Bar -->
+      <div class="tx-auto-bar">
+        <div class="auto-send-box" id="auto-send-box">
+          <label class="checkbox-label auto-send-toggle" title="啟動 / 停止週期定時發送">
+            <input type="checkbox" id="chk-auto-send" />
+            <span class="led" id="led-auto-send"></span>
+            <span>定時發送</span>
+          </label>
+          <span class="auto-sep">|</span>
+          <label class="auto-sub-label" for="inp-auto-interval">週期</label>
+          <input
+            type="number"
+            id="inp-auto-interval"
+            value="1000"
+            min="5"
+            max="3600000"
+            step="100"
+            title="定時發送週期間隔 (毫秒 ms，最小 5ms)"
+          />
+          <span class="unit">ms</span>
+          <span class="auto-sep">|</span>
+          <label class="auto-sub-label" for="inp-auto-max-count" title="設定發送次數上限，輸入 0 代表無限循環 (∞)">次數</label>
+          <input
+            type="number"
+            id="inp-auto-max-count"
+            value="0"
+            min="0"
+            max="10000000"
+            step="1"
+            title="發送次數上限：0 = 無限循環 (∞)；大於 0 則發送達指定次數後自動停止"
+          />
+          <span class="auto-progress-pill" id="auto-send-progress" title="目前定時發送進度 (已發送次數 / 目標上限)">0 / <span class="inf-sym">∞</span></span>
+        </div>
+
+        <button id="btn-tx-send-plane" class="tx-plane-send-btn" title="立即傳送數據 (Enter 發送，Shift+Enter 換行；或按 F5)">
+          <svg viewBox="0 0 24 24" class="plane-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 2L11 13"></path>
+            <path d="M22 2L15 22L11 13L2 9L22 2Z" fill="currentColor" fill-opacity="0.18"></path>
+          </svg>
+          <span class="plane-title">傳送</span>
+        </button>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <!-- Classic AccessPort Bottom Status Bar -->
+  <footer class="statusbar">
+    <div class="status-section status-port" id="status-port-text">
+      <span class="status-dot closed" id="status-dot"></span>
+      <span id="status-msg">就緒 — 串口未開啟</span>
+    </div>
+
+    <!-- RX / TX Byte & Packet Counters -->
+    <div class="status-section status-counters">
+      <span class="counter-item">RX: <strong id="count-rx-bytes">0</strong> B (<span id="count-rx-pkts">0</span> 筆)</span>
+      <span class="line-sep">|</span>
+      <span class="counter-item">TX: <strong id="count-tx-bytes">0</strong> B (<span id="count-tx-pkts">0</span> 筆)</span>
+      <button id="btn-reset-counts" class="status-reset-btn" title="歸零收發計數">歸零</button>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
