@@ -11,9 +11,27 @@ pub const PCAN_MESSAGE_RTR: u8 = 0x01;
 pub const PCAN_MESSAGE_EXTENDED: u8 = 0x02;
 pub const PCAN_MESSAGE_STATUS: u8 = 0x80;
 
-pub const PCAN_CHANNEL_CONDITION: u8 = 0x08;
+pub const PCAN_CHANNEL_CONDITION: u8 = 0x0D;
+pub const PCAN_ATTACHED_CHANNELS_COUNT: u8 = 0x2A;
+pub const PCAN_ATTACHED_CHANNELS: u8 = 0x2B;
+
+#[allow(dead_code)]
+pub const PCAN_CHANNEL_UNAVAILABLE: u32 = 0;
 pub const PCAN_CHANNEL_AVAILABLE: u32 = 1;
 pub const PCAN_CHANNEL_OCCUPIED: u32 = 2;
+pub const PCAN_CHANNEL_PCANVIEW: u32 = PCAN_CHANNEL_AVAILABLE | PCAN_CHANNEL_OCCUPIED;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct TPCANChannelInformation {
+    pub channel_handle: u16,
+    pub device_type: u8,
+    pub controller_number: u8,
+    pub device_features: u32,
+    pub device_name: [u8; 33],
+    pub device_id: u32,
+    pub channel_condition: u32,
+}
 
 pub const PCAN_USB_CHANNELS: &[(u16, &str)] = &[
     (0x51, "PCAN_USBBUS1"),
@@ -99,18 +117,31 @@ unsafe impl Sync for PcanLib {}
 impl PcanLib {
     pub fn load() -> Result<Arc<Self>, String> {
         #[cfg(target_os = "windows")]
-        let candidates = ["PCANBasic.dll"];
+        let mut candidate_paths: Vec<std::path::PathBuf> = vec![
+            std::path::PathBuf::from("PCANBasic.dll"),
+            std::path::PathBuf::from(r"C:\Windows\System32\PCANBasic.dll"),
+            std::path::PathBuf::from(r"D:\USBCAN卡资料_PCAN\04-二次开发\PCAN\x64\PCANBasic.dll"),
+        ];
+        #[cfg(target_os = "windows")]
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                candidate_paths.insert(0, dir.join("PCANBasic.dll"));
+            }
+        }
         #[cfg(target_os = "macos")]
-        let candidates = [
-            "/usr/local/lib/libPCBUSB.dylib",
-            "/opt/homebrew/lib/libPCBUSB.dylib",
-            "libPCBUSB.dylib",
+        let candidate_paths: Vec<std::path::PathBuf> = vec![
+            std::path::PathBuf::from("/usr/local/lib/libPCBUSB.dylib"),
+            std::path::PathBuf::from("/opt/homebrew/lib/libPCBUSB.dylib"),
+            std::path::PathBuf::from("libPCBUSB.dylib"),
         ];
         #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-        let candidates = ["libPCBUSB.so", "libpcanbasic.so"];
+        let candidate_paths: Vec<std::path::PathBuf> = vec![
+            std::path::PathBuf::from("libPCBUSB.so"),
+            std::path::PathBuf::from("libpcanbasic.so"),
+        ];
 
-        for path in candidates {
-            if let Ok(lib) = unsafe { Library::new(path) } {
+        for path in candidate_paths {
+            if let Ok(lib) = unsafe { Library::new(&path) } {
                 unsafe {
                     let fn_initialize = *lib
                         .get::<FnCanInitialize>(b"CAN_Initialize\0")
@@ -191,6 +222,47 @@ impl PcanLib {
             Err(status)
         }
     }
+
+    pub fn get_attached_channels(&self) -> Result<Vec<TPCANChannelInformation>, u32> {
+        let mut count: u32 = 0;
+        let status = unsafe {
+            (self.fn_get_value)(
+                0,
+                PCAN_ATTACHED_CHANNELS_COUNT,
+                &mut count as *mut u32 as *mut c_void,
+                std::mem::size_of::<u32>() as u32,
+            )
+        };
+        if status != PCAN_ERROR_OK || count == 0 {
+            return Ok(Vec::new());
+        }
+        let mut buffer = vec![
+            TPCANChannelInformation {
+                channel_handle: 0,
+                device_type: 0,
+                controller_number: 0,
+                device_features: 0,
+                device_name: [0u8; 33],
+                device_id: 0,
+                channel_condition: 0,
+            };
+            count as usize
+        ];
+        let bytes_len = (count as usize * std::mem::size_of::<TPCANChannelInformation>()) as u32;
+        let status2 = unsafe {
+            (self.fn_get_value)(
+                0,
+                PCAN_ATTACHED_CHANNELS,
+                buffer.as_mut_ptr() as *mut c_void,
+                bytes_len,
+            )
+        };
+        if status2 == PCAN_ERROR_OK {
+            Ok(buffer)
+        } else {
+            Err(status2)
+        }
+    }
 }
 
 pub fn parse_channel_handle(name: &str) -> Result<u16, String> {
@@ -226,9 +298,12 @@ pub fn format_pcan_error(status: u32) -> String {
         0x00008 => "PCAN_ERROR_BUSHEAVY (匯流排嚴重錯誤)".to_string(),
         0x00010 => "PCAN_ERROR_BUSOFF (匯流排已關閉 Bus-Off)".to_string(),
         0x00200 => "PCAN_ERROR_HWINUSE (硬體通道已被佔用)".to_string(),
+        0x00800 => "PCAN_ERROR_NETINUSE (網路已被使用或波特率衝突)".to_string(),
         0x01400 => "PCAN_ERROR_NODRIVER (未載入驅動程式)".to_string(),
         0x01C00 => "PCAN_ERROR_ILLHW (找不到對應的 PCAN 硬體)".to_string(),
         0x04000 => "PCAN_ERROR_INITIALIZE (通道尚未初始化)".to_string(),
+        0x80000 => "PCAN_ERROR_ILLMODE (驅動狀態錯誤: 已被 PCAN-View/其他程式佔用，或需重新拔插 USB)".to_string(),
+        0x8000000 => "PCAN_ERROR_ILLOPERATION (不支援此操作模式)".to_string(),
         _ => format!("PCAN 錯誤碼: 0x{:05X}", status),
     }
 }

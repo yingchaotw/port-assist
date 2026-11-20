@@ -1,8 +1,8 @@
 [package]
-name = "accessport-rust"
+name = "port-assist"
 version = "0.1.0"
-description = "SUDT AccessPort Replica for RS232/422/485 Serial Port in Rust + Tauri"
-authors = ["AccessPort Rust"]
+description = "PortAssist: Cross-platform Serial (RS232/422/485), TCP/UDP, and PCAN (CAN 2.0) debugging assistant built with Rust & Tauri 2"
+authors = ["PortAssist"]
 edition = "2021"
 
 [build-dependencies]

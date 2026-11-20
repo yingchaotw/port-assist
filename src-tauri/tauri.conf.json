@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AccessPort Rust",
+  "productName": "PortAssist",
   "version": "0.1.0",
-  "identifier": "com.accessport.rust",
+  "identifier": "com.portassist.app",
   "build": {
     "frontendDist": "../ui"
   },

@@ -147,6 +147,7 @@
       txCrlf: false,
 
       packets: [],
+      fixedMap: new Map(),
       rxPktCount: 0,
       txByteCount: 0,
       txPktCount: 0,
@@ -270,6 +271,8 @@
     rxHexGrid: document.getElementById("rx-hex-grid"),
     rxTextView: document.getElementById("rx-text-view"),
     rxPacketView: document.getElementById("rx-packet-view"),
+    rxFixedView: document.getElementById("rx-fixed-view"),
+    fixedTableBody: document.getElementById("fixed-table-body"),
 
     appBody: document.querySelector(".app-body"),
     leftSidebar: document.getElementById("left-sidebar"),
@@ -1233,6 +1236,38 @@
         lastPerfMs: chunk.perfMs,
         closed: true,
       });
+
+      if (!sess.fixedMap) sess.fixedMap = new Map();
+      if (sess.connType !== "pcan") {
+        const fixedKey = `${dir}_0`;
+        let item = sess.fixedMap.get(fixedKey);
+        const nowPerf = chunk.perfMs || performance.now();
+        if (!item) {
+          sess.fixedMap.set(fixedKey, {
+            key: fixedKey,
+            idStr: `[${dir}]`,
+            rawId: 1,
+            extended: false,
+            rtr: false,
+            typeStr: (sess.connType || "COM").toUpperCase(),
+            dlc: len,
+            data: chunk.bytes.slice(0, 32),
+            prevData: [],
+            count: 1,
+            lastPerfMs: nowPerf,
+            cycleMs: 0,
+            timeStr: chunk.timeStr,
+          });
+        } else {
+          item.count += 1;
+          item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
+          item.lastPerfMs = nowPerf;
+          item.timeStr = chunk.timeStr;
+          item.dlc = len;
+          item.prevData = item.data;
+          item.data = chunk.bytes.slice(0, 32);
+        }
+      }
       if (!sess.showTxInline) return;
 
       const startByteCursor = sess.viewBytes.length;
@@ -1259,6 +1294,37 @@
     }
 
     // Handle RX chunks
+    if (!sess.fixedMap) sess.fixedMap = new Map();
+    if (sess.connType !== "pcan") {
+      const fixedKey = "RX_0";
+      let item = sess.fixedMap.get(fixedKey);
+      const nowPerf = chunk.perfMs || performance.now();
+      if (!item) {
+        sess.fixedMap.set(fixedKey, {
+          key: fixedKey,
+          idStr: "[RX]",
+          rawId: 0,
+          extended: false,
+          rtr: false,
+          typeStr: (sess.connType || "COM").toUpperCase(),
+          dlc: len,
+          data: chunk.bytes.slice(0, 32),
+          prevData: [],
+          count: 1,
+          lastPerfMs: nowPerf,
+          cycleMs: 0,
+          timeStr: chunk.timeStr,
+        });
+      } else {
+        item.count += 1;
+        item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
+        item.lastPerfMs = nowPerf;
+        item.timeStr = chunk.timeStr;
+        item.dlc = len;
+        item.prevData = item.data;
+        item.data = chunk.bytes.slice(0, 32);
+      }
+    }
     const rule = sess.frameRule || "timeout_maxlen";
     const useTimeout =
       sess.frameBreakEnabled &&
@@ -1549,14 +1615,17 @@
     if (!sess || sess.id !== activeSessionId) return;
     const mode = sess.rxMode;
     el.rxViewport.classList.toggle("show-ts", sess.showTimestamp !== false);
-    el.rxHexRuler.classList.toggle("hidden", mode === "text" || mode === "packets");
+    el.rxHexRuler.classList.toggle("hidden", mode === "text" || mode === "packets" || mode === "fixed");
     const rulerAscii = document.getElementById("ruler-ascii-cols");
     if (rulerAscii) {
-      rulerAscii.classList.toggle("hidden", mode === "hex");
+      rulerAscii.classList.toggle("hidden", mode === "hex" || mode === "fixed");
     }
-    el.rxHexGrid.classList.toggle("hidden", mode === "text" || mode === "packets");
+    el.rxHexGrid.classList.toggle("hidden", mode === "text" || mode === "packets" || mode === "fixed");
     el.rxTextView.classList.toggle("hidden", mode !== "text");
     el.rxPacketView.classList.toggle("hidden", mode !== "packets");
+    if (el.rxFixedView) {
+      el.rxFixedView.classList.toggle("hidden", mode !== "fixed");
+    }
 
     if (mode === "dual" || mode === "hex") {
       renderVirtualizedHexGrid(sess, mode === "dual", scrollToBottom);
@@ -1564,6 +1633,8 @@
       renderTextViewWindowed(sess, scrollToBottom);
     } else if (mode === "packets") {
       renderPacketTimelineWindowed(sess, scrollToBottom);
+    } else if (mode === "fixed") {
+      renderFixedTable(sess);
     }
   }
 
@@ -1868,6 +1939,74 @@
     el.rxPacketView.appendChild(fragment);
     if (scrollToBottom && el.chkRxAutoscroll.checked) {
       el.rxViewport.scrollTop = el.rxViewport.scrollHeight;
+    }
+  }
+
+  function formatFixedHexData(dataBytes, prevData) {
+    if (!dataBytes || dataBytes.length === 0) return '<span style="color:#94a3b8;">-</span>';
+    return dataBytes
+      .map((b, i) => {
+        const hex = b.toString(16).toUpperCase().padStart(2, "0");
+        const isMod = prevData && prevData.length > i && prevData[i] !== b;
+        return isMod ? `<span class="byte-mod">${hex}</span>` : hex;
+      })
+      .join(" ");
+  }
+
+  function renderFixedTable(sess) {
+    if (!el.fixedTableBody) return;
+    if (!sess.fixedMap || sess.fixedMap.size === 0) {
+      el.fixedTableBody._rowMap = null;
+      el.fixedTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 28px; color:#94a3b8; font-size: 13px;">此分頁尚無接收數據。<br><span style="font-size: 11px; opacity: 0.8;">（固定行模式將依 CAN ID 或幀識別碼原地覆蓋更新最新數據、計數與週期時間）</span></td></tr>`;
+      return;
+    }
+
+    let rowMap = el.fixedTableBody._rowMap;
+    if (!rowMap || el.fixedTableBody._currentSessionId !== sess.id) {
+      el.fixedTableBody.innerHTML = "";
+      rowMap = new Map();
+      el.fixedTableBody._rowMap = rowMap;
+      el.fixedTableBody._currentSessionId = sess.id;
+    }
+
+    const sortedItems = Array.from(sess.fixedMap.values()).sort((a, b) => (a.rawId ?? 0) - (b.rawId ?? 0));
+
+    for (let i = 0; i < sortedItems.length; i++) {
+      const item = sortedItems[i];
+      let rowObj = rowMap.get(item.key);
+
+      if (!rowObj) {
+        const tr = document.createElement("tr");
+        tr.dataset.key = item.key;
+        tr.innerHTML = `
+          <td class="td-id">${item.idStr}</td>
+          <td class="td-type ${item.typeStr.toLowerCase()}">${item.typeStr}</td>
+          <td class="td-dlc">${item.dlc}</td>
+          <td class="td-data">${formatFixedHexData(item.data, item.prevData)}</td>
+          <td class="td-ascii">${item.data.map(toPrintableAscii).join("").replace(/</g, "&lt;")}</td>
+          <td class="td-count">${item.count}</td>
+          <td class="td-cycle">${item.cycleMs > 0 ? item.cycleMs.toFixed(1) : "-"}</td>
+          <td class="td-time">${item.timeStr}</td>
+        `;
+        el.fixedTableBody.appendChild(tr);
+        rowObj = {
+          tr,
+          tdDlc: tr.children[2],
+          tdData: tr.children[3],
+          tdAscii: tr.children[4],
+          tdCount: tr.children[5],
+          tdCycle: tr.children[6],
+          tdTime: tr.children[7],
+        };
+        rowMap.set(item.key, rowObj);
+      } else {
+        rowObj.tdDlc.textContent = item.dlc;
+        rowObj.tdData.innerHTML = formatFixedHexData(item.data, item.prevData);
+        rowObj.tdAscii.textContent = item.data.map(toPrintableAscii).join("");
+        rowObj.tdCount.textContent = item.count;
+        rowObj.tdCycle.textContent = item.cycleMs > 0 ? item.cycleMs.toFixed(1) : "-";
+        rowObj.tdTime.textContent = item.timeStr;
+      }
     }
   }
 
@@ -2649,6 +2788,11 @@
     sess.maxCols = sess.frameLayout === "continuous_32" ? 32 : 16;
     sess.packets = [];
     sess.rxPktCount = 0;
+    if (sess.fixedMap) sess.fixedMap.clear();
+    if (el.fixedTableBody) {
+      el.fixedTableBody._rowMap = null;
+      el.fixedTableBody.innerHTML = "";
+    }
     sess.selectedRxIndex = -1;
     el.rxSelectionInfo.textContent =
       "滑鼠指向或點擊任一 Byte 以檢視位址、所屬數據幀、Hex / Dec / Bin 與 ASCII 資訊";
@@ -2786,6 +2930,12 @@
     const sess = getActiveSession();
     if (sess && !sess.isOpen) {
       sess.connType = el.selConnType.value;
+      if (sess.connType === "pcan") {
+        if ((!sess.fixedMap || sess.fixedMap.size === 0) && sess.rxBytes.length === 0) {
+          setRxMode("fixed");
+        }
+        refreshPcanChannels();
+      }
       updatePortUi(sess);
       renderSessionTabs();
     }
@@ -3176,39 +3326,55 @@
 
   function exportRxLogWithTimestamp(sess) {
     if (!sess) return;
+    const hasFixed = sess.fixedMap && sess.fixedMap.size > 0;
     const hasFrames = sess.rxFrames && sess.rxFrames.length > 0;
     const hasPackets = sess.packets && sess.packets.length > 0;
-    if (!hasFrames && !hasPackets) {
+    if (!hasFixed && !hasFrames && !hasPackets) {
       setSessionStatus(sess, "目前接收區無數據可儲存");
       return;
     }
 
     const lines = [];
-    lines.push(`# AccessPort Log - ${getConnSummary(sess)} - Exported at ${new Date().toLocaleString()}`);
-    lines.push("# Format: [Time] [Dir] (Length) Hex | ASCII");
-    lines.push("");
-
-    if (hasFrames) {
-      for (let i = 0; i < sess.rxFrames.length; i++) {
-        const f = sess.rxFrames[i];
-        const slice = sess.viewBytes.slice(f.startIdx, f.startIdx + f.length);
-        const hexStr = bytesToHexString(slice, false);
-        const asciiStr = slice.map(toPrintableAscii).join("");
-        const dirTag = (f.dir || "RX").padEnd(2, " ");
-        const lenStr = String(f.length).padStart(3, " ");
-        const pktMeta = sess.packets[i] && sess.packets[i].canMeta ? `[${sess.packets[i].canMeta}] ` : "";
-        lines.push(`[${f.timeStr}] [${dirTag}] (${lenStr} B) ${pktMeta}${hexStr}  | ${asciiStr}`);
+    if (sess.rxMode === "fixed" && hasFixed) {
+      lines.push(`# PortAssist Fixed Table - ${getConnSummary(sess)} - Exported at ${new Date().toLocaleString()}`);
+      lines.push("# ID         | Type | DLC | Data (Hex)               | ASCII    | Count | Cycle (ms) | Time");
+      lines.push("");
+      const sorted = Array.from(sess.fixedMap.values()).sort((a, b) => (a.rawId ?? 0) - (b.rawId ?? 0));
+      for (const item of sorted) {
+        const hexStr = bytesToHexString(item.data, false);
+        const asciiStr = item.data.map(toPrintableAscii).join("");
+        const cycStr = item.cycleMs > 0 ? item.cycleMs.toFixed(1) : "-";
+        lines.push(
+          `${item.idStr.padEnd(10)} | ${item.typeStr.padEnd(4)} | ${String(item.dlc).padEnd(3)} | ${hexStr.padEnd(24)} | ${asciiStr.padEnd(8)} | ${String(item.count).padStart(5)} | ${cycStr.padStart(10)} | ${item.timeStr}`
+        );
       }
     } else {
-      for (let i = 0; i < sess.packets.length; i++) {
-        const p = sess.packets[i];
-        const bytes = p.previewBytes || [];
-        const hexStr = bytesToHexString(bytes, false);
-        const asciiStr = bytes.map(toPrintableAscii).join("");
-        const dirTag = (p.dir || "RX").padEnd(2, " ");
-        const lenStr = String(p.byteLength ?? bytes.length).padStart(3, " ");
-        const canTag = p.canMeta ? `[${p.canMeta}] ` : "";
-        lines.push(`[${p.time}] [${dirTag}] (${lenStr} B) ${canTag}${hexStr}  | ${asciiStr}`);
+      lines.push(`# PortAssist Log - ${getConnSummary(sess)} - Exported at ${new Date().toLocaleString()}`);
+      lines.push("# Format: [Time] [Dir] (Length) Hex | ASCII");
+      lines.push("");
+
+      if (hasFrames) {
+        for (let i = 0; i < sess.rxFrames.length; i++) {
+          const f = sess.rxFrames[i];
+          const slice = sess.viewBytes.slice(f.startIdx, f.startIdx + f.length);
+          const hexStr = bytesToHexString(slice, false);
+          const asciiStr = slice.map(toPrintableAscii).join("");
+          const dirTag = (f.dir || "RX").padEnd(2, " ");
+          const lenStr = String(f.length).padStart(3, " ");
+          const pktMeta = sess.packets[i] && sess.packets[i].canMeta ? `[${sess.packets[i].canMeta}] ` : "";
+          lines.push(`[${f.timeStr}] [${dirTag}] (${lenStr} B) ${pktMeta}${hexStr}  | ${asciiStr}`);
+        }
+      } else {
+        for (let i = 0; i < sess.packets.length; i++) {
+          const p = sess.packets[i];
+          const bytes = p.previewBytes || [];
+          const hexStr = bytesToHexString(bytes, false);
+          const asciiStr = bytes.map(toPrintableAscii).join("");
+          const dirTag = (p.dir || "RX").padEnd(2, " ");
+          const lenStr = String(p.byteLength ?? bytes.length).padStart(3, " ");
+          const canTag = p.canMeta ? `[${p.canMeta}] ` : "";
+          lines.push(`[${p.time}] [${dirTag}] (${lenStr} B) ${canTag}${hexStr}  | ${asciiStr}`);
+        }
       }
     }
 
@@ -3265,10 +3431,10 @@
   document.getElementById("menu-reset-counters").addEventListener("click", resetCounters);
   document.getElementById("menu-about").addEventListener("click", () => {
     alert(
-      "AccessPort (Rust Edition)\n\n" +
-      "致敬 SUDT AccessPort 經典 RS232/422/485 串口調試工具。\n" +
-      "核心架構：Rust (serialport 無鎖讀取 + 批次事件) + Tauri 虛擬捲動引擎\n" +
-      "支援高速大數據量零延遲渲染、多串口分頁、自訂波特率、超時斷幀與收發毫秒時間戳記。"
+      "PortAssist\n\n" +
+      "跨平台串口 (RS232/422/485) + TCP/UDP + PCAN 綜合通訊調試助手。\n" +
+      "核心架構：Rust (serialport / socket / libloading PCAN-Basic) + Tauri 2 虛擬捲動引擎\n" +
+      "支援高速大數據量零延遲渲染、多通訊分頁、自訂波特率、超時斷幀、定時發送與毫秒時間戳記。"
     );
   });
 
@@ -3415,6 +3581,38 @@
       }
       if (sess.packets.length > 0) {
         sess.packets[sess.packets.length - 1].canMeta = chunk.canMeta;
+      }
+
+      // Maintain PCAN Fixed In-Place Map (PCAN-View Receive List)
+      if (!sess.fixedMap) sess.fixedMap = new Map();
+      const fixedKey = `${f.extended ? "E" : "S"}_${idHex}_${f.rtr ? "R" : "D"}`;
+      let fixedItem = sess.fixedMap.get(fixedKey);
+      const nowPerf = f.perfMs ?? batchNowMs;
+      if (!fixedItem) {
+        fixedItem = {
+          key: fixedKey,
+          idStr: `0x${idHex}`,
+          rawId: f.id,
+          extended: f.extended,
+          rtr: f.rtr,
+          typeStr: kindTag,
+          dlc: f.dlc,
+          data: [...dataBytes],
+          prevData: [],
+          count: 1,
+          lastPerfMs: nowPerf,
+          cycleMs: 0,
+          timeStr: nowWallStr,
+        };
+        sess.fixedMap.set(fixedKey, fixedItem);
+      } else {
+        fixedItem.count += 1;
+        fixedItem.cycleMs = Math.max(0, nowPerf - fixedItem.lastPerfMs);
+        fixedItem.lastPerfMs = nowPerf;
+        fixedItem.timeStr = nowWallStr;
+        fixedItem.dlc = f.dlc;
+        fixedItem.prevData = fixedItem.data;
+        fixedItem.data = [...dataBytes];
       }
     }
 
@@ -3571,6 +3769,111 @@
         }
       }
     });
+
+    await listen("external-tx", (event) => {
+      const p = event && event.payload;
+      if (p && Array.isArray(p.data)) {
+        recordExternalTx(p.sessionId, p.data);
+      }
+    });
+
+    await listen("external-pcan-tx", (event) => {
+      const p = event && event.payload;
+      if (p && p.frame) {
+        recordExternalPcanTx(p.sessionId, p.frame);
+      }
+    });
+
+    await listen("mcp-session-opened", (event) => {
+      const p = event && event.payload;
+      if (p) handleMcpSessionOpened(p);
+    });
+
+    await listen("mcp-session-closed", (event) => {
+      const p = event && event.payload;
+      if (p) handleMcpSessionClosed(p);
+    });
+  }
+
+  function recordExternalTx(sessionId, bytes) {
+    const sess = getSessionById(sessionId) || (sessions.length > 0 ? sessions[0] : null);
+    if (!sess) return;
+    sess.txByteCount += bytes.length;
+    sess.txPktCount += 1;
+    const txChunk = {
+      perfMs: performance.now(),
+      timeStr: formatTimestamp(),
+      dir: "TX",
+      bytes: bytes,
+    };
+    sess.rxRawChunks.push(txChunk);
+    appendChunkIncremental(sess, txChunk);
+    if (sess.id === activeSessionId) {
+      scheduleActiveRender(true);
+    }
+    setSessionStatus(sess, `[MCP] 已發送 ${bytes.length} Bytes`);
+  }
+
+  function recordExternalPcanTx(sessionId, frame) {
+    const sess = getSessionById(sessionId) || (sessions.length > 0 ? sessions[0] : null);
+    if (!sess) return;
+    const bytes = Array.isArray(frame.data) ? frame.data : [];
+    sess.txByteCount += bytes.length;
+    sess.txPktCount += 1;
+    const idHex = frame.extended
+      ? frame.id.toString(16).toUpperCase().padStart(8, "0")
+      : frame.id.toString(16).toUpperCase().padStart(3, "0");
+    const kindTag = frame.rtr ? "RTR" : frame.extended ? "Ext" : "Std";
+    const canMeta = `ID:0x${idHex} ${kindTag} DLC:${frame.dlc ?? bytes.length}`;
+
+    const txChunk = {
+      perfMs: performance.now(),
+      timeStr: formatTimestamp(),
+      dir: "TX",
+      bytes: bytes,
+      canMeta: canMeta,
+    };
+    sess.rxRawChunks.push(txChunk);
+    appendChunkIncremental(sess, txChunk);
+    if (sess.rxFrames.length > 0) {
+      sess.rxFrames[sess.rxFrames.length - 1].closed = true;
+      sess.rxFrames[sess.rxFrames.length - 1].canMeta = canMeta;
+    }
+    if (sess.packets.length > 0) {
+      sess.packets[sess.packets.length - 1].canMeta = canMeta;
+    }
+    if (sess.id === activeSessionId) {
+      scheduleActiveRender(true);
+    }
+    setSessionStatus(sess, `[MCP] 已發送 CAN 幀 ${idHex} (${kindTag})`);
+  }
+
+  function handleMcpSessionOpened(p) {
+    if (!p) return;
+    const sess = getSessionById(p.sessionId) || (sessions.length > 0 ? sessions[0] : null);
+    if (!sess) return;
+    sess.isOpen = true;
+    sess.portName = p.portName || sess.portName;
+    if (p.connType) sess.connType = p.connType;
+    if (p.baudRate) {
+      if (p.connType === "pcan") sess.pcanBaud = p.baudRate;
+      else sess.baudRate = p.baudRate;
+    }
+    if (sess.id === activeSessionId) {
+      syncUiForActiveSession();
+    }
+    setSessionStatus(sess, `[MCP] 已連線 ${sess.portName}`);
+  }
+
+  function handleMcpSessionClosed(p) {
+    if (!p) return;
+    const sess = getSessionById(p.sessionId) || (sessions.length > 0 ? sessions[0] : null);
+    if (!sess) return;
+    sess.isOpen = false;
+    if (sess.id === activeSessionId) {
+      syncUiForActiveSession();
+    }
+    setSessionStatus(sess, `[MCP] 已中斷連線`);
   }
 
   // ==================== DETACH TAB TO NEW WINDOW ====================
@@ -3650,7 +3953,7 @@
     }
 
     const label = `win_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-    const title = `AccessPort - ${formatSessionTabTitle(sess)}`;
+    const title = `PortAssist - ${formatSessionTabTitle(sess)}`;
     const payloadJson = serializeSessionForDetach(sess);
 
     try {
@@ -3680,6 +3983,7 @@
   // ==================== INITIALIZATION ====================
   async function init() {
     await refreshPorts();
+    refreshPcanChannels();
 
     const detachedKey = new URLSearchParams(window.location.search).get("detached");
     const invoke = getTauriInvoke();

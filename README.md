@@ -48,8 +48,24 @@ cargo build --release
 ```
 
 編譯完成後的執行檔位於：
-* **macOS**：`src-tauri/target/release/accessport-rust`
-* **Windows**：`src-tauri/target/release/accessport-rust.exe`
+* **macOS**：`src-tauri/target/release/port-assist`
+* **Windows**：`src-tauri/target/release/port-assist.exe`
+
+---
+
+### PCAN (CAN 2.0) 設定與故障排除
+
+若切換至 **PCAN (CAN 2.0)** 模式無法偵測到通道或開啟失敗，請依下列 3 步驟排除：
+
+1. **插入實體 PCAN 硬體**：
+   * 請將 PEAK PCAN-USB 轉接器插入電腦的 USB 插槽，確認指示燈正常。
+2. **安裝 PEAK 驅動或放置 `PCANBasic.dll`**：
+   * **方式 A（建議）**：至 PEAK-System 官網下載安裝 [PEAK-Drivers Setup](https://www.peak-system.com/quick/DrvSetup)，安裝時會自動將 64 位元的 `PCANBasic.dll` 註冊到 `C:\Windows\System32\`。
+   * **方式 B（免安裝直接放 DLL）**：從 [PCAN-Basic API Package](https://www.peak-system.com/quick/PCAN-Basic-API) 解壓縮出 64-bit 的 `PCANBasic.dll`，直接複製到：
+     * `C:\Windows\System32\PCANBasic.dll`，或
+     * 執行檔同層目錄：`src-tauri/target/debug/PCANBasic.dll`（或發布目錄 `src-tauri/target/release/`）。
+3. **重新偵測**：
+   * 插入硬體並備妥 DLL 後，切換到 **PCAN (CAN 2.0)** 分頁，點擊 PCAN 通道右側的重整鈕 **`↻`**，下拉選單即會顯示已連線的通道（例如：`PCAN_USBBUS1 (可用)`）。
 
 ---
 
@@ -70,6 +86,9 @@ cargo build --release
    * 多組快捷發送（CharList）支援 `Serial Assistant ExCommand (.ini)` 格式匯入與匯出，並內建 SCPI 指令庫與定時循環發送。
 5. **彈性工作區**：
    * 支援**深色 / 明亮模式**、**檢視選單字體大小（小 / 中 / 大）**、**可調寬度左側設定欄**，以及**分頁拖曳 / 右鍵獨立成新視窗**。
+6. **多元接收檢視模式**：
+   * **Hex + ASCII 並排 (經典)**、**純 Hex**、**純文字終端** 與 **分包日誌 (滾動模式)**。
+   * **PCAN-View 經典「固定行模式 (Fixed / In-Place)」**：依 CAN ID 或幀原地覆蓋更新，支援 Data Hex（數據變更自動高亮）、ASCII、計數（Count）與毫秒級幀週期時間（Cycle Time ms），在高速廣播時畫面完全不滾動！
 
 ---
 

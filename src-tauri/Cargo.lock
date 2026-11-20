@@ -3,18 +3,6 @@
 version = 4
 
 [[package]]
-name = "accessport-rust"
-version = "0.1.0"
-dependencies = [
- "libloading 0.8.9",
- "serde",
- "serde_json",
- "serialport",
- "tauri",
- "tauri-build",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2384,6 +2372,18 @@ dependencies = [
  "fdeflate",
  "flate2",
  "miniz_oxide 0.8.9",
+]
+
+[[package]]
+name = "port-assist"
+version = "0.1.0"
+dependencies = [
+ "libloading 0.8.9",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tauri",
+ "tauri-build",
 ]
 
 [[package]]

@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AccessPort (Rust Edition) - RS232/422/485 + TCP/UDP 通訊調試助手</title>
+  <title>PortAssist - RS232/422/485 + TCP/UDP + PCAN 通訊調試助手</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,8 +13,8 @@
   <header class="titlebar" id="titlebar">
     <!-- Left: App Logo & Classic Menu -->
     <div class="titlebar-left">
-      <div class="app-logo" id="app-logo-drag" title="AccessPort (Rust Edition) — 按住可拖曳視窗">
-        <span class="logo-box">AP</span>
+      <div class="app-logo" id="app-logo-drag" title="PortAssist — 按住可拖曳視窗">
+        <img class="logo-img" src="favicon.png" alt="PortAssist" width="20" height="20" />
       </div>
       <div class="menubar">
         <div class="menu-item" data-menu="file">
@@ -34,8 +36,10 @@
             <button data-rx-mode="dual">接收區：Hex + ASCII 並排 (經典)</button>
             <button data-rx-mode="hex">接收區：僅十六進位 (Hex)</button>
             <button data-rx-mode="text">接收區：純文字模式 (ASCII/UTF-8)</button>
+            <button data-rx-mode="packets">接收區：分包日誌 (滾動模式)</button>
+            <button data-rx-mode="fixed">接收區：固定行模式 (PCAN-View 覆蓋)</button>
             <div class="menu-sep"></div>
-            <button id="menu-toggle-packets">切換分包時間戳記視圖</button>
+            <button id="menu-toggle-packets">切換日誌 / 經典檢視</button>
             <div class="menu-sep"></div>
             <button data-font-size="12" class="menu-font-btn">字體大小：小 (12px)</button>
             <button data-font-size="14" class="menu-font-btn">字體大小：中 (14px)</button>
@@ -54,7 +58,7 @@
         <div class="menu-item" data-menu="help">
           <span>說明(H)</span>
           <div class="menu-dropdown">
-            <button id="menu-about">關於 AccessPort Rust Edition</button>
+            <button id="menu-about">關於 PortAssist</button>
           </div>
         </div>
       </div>
@@ -444,7 +448,8 @@
             <button class="seg-btn active" data-mode="dual" title="AccessPort 經典 Hex + ASCII 並排顯示">Hex+ASCII</button>
             <button class="seg-btn" data-mode="hex" title="僅顯示十六進位">純Hex</button>
             <button class="seg-btn" data-mode="text" title="純文字終端顯示">純文字</button>
-            <button class="seg-btn" data-mode="packets" title="顯示每次收發封包時間戳記與方向">日誌</button>
+            <button class="seg-btn" data-mode="packets" title="顯示每次收發封包時間戳記與方向（滾動日誌）">日誌</button>
+            <button class="seg-btn" data-mode="fixed" title="PCAN-View 經典固定行模式：以 CAN ID / 幀在同一行覆蓋更新，顯示最新數據、計數與週期時間">固定(Fixed)</button>
           </div>
           <button id="btn-copy-rx-hex" class="mini-btn" title="複製接收區 Hex">複製Hex</button>
           <button id="btn-copy-rx-text" class="mini-btn" title="複製接收區文字">複製文字</button>
@@ -468,6 +473,24 @@
         <pre class="text-view hidden" id="rx-text-view"></pre>
         <!-- Packet Timeline Log Container -->
         <div class="packet-view hidden" id="rx-packet-view"></div>
+        <!-- Fixed In-Place Table View (PCAN-View Classic Mode) -->
+        <div class="fixed-view hidden" id="rx-fixed-view">
+          <table class="fixed-table" id="fixed-table">
+            <thead>
+              <tr>
+                <th class="th-id">CAN ID / 識別</th>
+                <th class="th-type">類型</th>
+                <th class="th-dlc">DLC</th>
+                <th class="th-data">數據 (Data Hex)</th>
+                <th class="th-ascii">ASCII</th>
+                <th class="th-count">計數</th>
+                <th class="th-cycle">週期 (ms)</th>
+                <th class="th-time">時間</th>
+              </tr>
+            </thead>
+            <tbody id="fixed-table-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Dedicated Bottom Cursor & Frame Inspector Bar (Never overlaps header controls) -->

@@ -1,17 +1,19 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod api_server;
+mod main_helpers;
 mod pcan;
 
 use pcan::{
     baud_to_btr0btr1, format_pcan_error, parse_channel_handle, CanRxBatchEventDto, CanRxFrameDto,
     PcanConfigDto, PcanLib, PcanTxFrameDto, TPCANMsg, PCAN_CHANNEL_AVAILABLE,
-    PCAN_CHANNEL_OCCUPIED, PCAN_ERROR_OK, PCAN_MESSAGE_EXTENDED, PCAN_MESSAGE_RTR,
+    PCAN_CHANNEL_OCCUPIED, PCAN_CHANNEL_PCANVIEW, PCAN_ERROR_OK, PCAN_MESSAGE_EXTENDED, PCAN_MESSAGE_RTR,
     PCAN_MESSAGE_STANDARD, PCAN_MESSAGE_STATUS, PCAN_USB_CHANNELS,
 };
 use serde::{Deserialize, Serialize};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, SerialPortType, StopBits};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,9 +103,41 @@ pub struct PortSession {
     pub epoch: Instant,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RxRecord {
+    pub time_ms: f64,
+    pub session_id: String,
+    pub kind: String, // "serial", "pcan", "net"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extended: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtr: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dlc: Option<u8>,
+    pub data: Vec<u8>,
+    pub data_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+pub fn push_rx_record(history: &Arc<Mutex<VecDeque<RxRecord>>>, record: RxRecord) {
+    if let Ok(mut guard) = history.lock() {
+        if guard.len() >= 2048 {
+            guard.pop_front();
+        }
+        guard.push_back(record);
+    }
+}
+
 pub struct SerialManager {
     pub sessions: Mutex<HashMap<String, PortSession>>,
     pub detached_payloads: Mutex<HashMap<String, String>>,
+    pub rx_history: Arc<Mutex<VecDeque<RxRecord>>>,
 }
 
 impl Default for SerialManager {
@@ -111,12 +145,17 @@ impl Default for SerialManager {
         Self {
             sessions: Mutex::new(HashMap::new()),
             detached_payloads: Mutex::new(HashMap::new()),
+            rx_history: Arc::new(Mutex::new(VecDeque::with_capacity(2048))),
         }
     }
 }
 
 #[tauri::command]
 fn list_serial_ports() -> Result<Vec<PortInfoDto>, String> {
+    list_serial_ports_internal()
+}
+
+pub fn list_serial_ports_internal() -> Result<Vec<PortInfoDto>, String> {
     let ports = serialport::available_ports().map_err(|e| e.to_string())?;
     let mut list = Vec::with_capacity(ports.len());
 
@@ -139,7 +178,7 @@ fn list_serial_ports() -> Result<Vec<PortInfoDto>, String> {
     Ok(list)
 }
 
-fn close_session_internal(state: &SerialManager, session_id: &str) {
+pub fn close_session_internal(state: &SerialManager, session_id: &str) {
     if let Ok(mut map) = state.sessions.lock() {
         if let Some(session) = map.remove(session_id) {
             session.running.store(false, Ordering::SeqCst);
@@ -159,7 +198,16 @@ fn open_serial_port(
     session_id: String,
     config: SerialConfigDto,
 ) -> Result<(), String> {
-    close_session_internal(&state, &session_id);
+    open_serial_port_internal(&app, &state, session_id, config)
+}
+
+pub fn open_serial_port_internal(
+    app: &AppHandle,
+    state: &SerialManager,
+    session_id: String,
+    config: SerialConfigDto,
+) -> Result<(), String> {
+    close_session_internal(state, &session_id);
 
     if config.port_name != "LOOPBACK" {
         let map = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -257,6 +305,7 @@ fn open_serial_port(
 
     let app_handle = app.clone();
     let sid = session_id.clone();
+    let rx_history_clone = Arc::clone(&state.rx_history);
 
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
@@ -285,7 +334,7 @@ fn open_serial_port(
                             read_count = 1;
                             let extra = rp.bytes_to_read().unwrap_or(0) as usize;
                             if extra > 0 {
-                                let max_extra = extra.min(buf.len() - 1);
+                                 let max_extra = extra.min(buf.len() - 1);
                                 if let Ok(n2) = rp.read(&mut buf[1..1 + max_extra]) {
                                     read_count += n2;
                                 }
@@ -335,9 +384,25 @@ fn open_serial_port(
 
             if read_count > 0 {
                 let perf_ms = epoch.elapsed().as_secs_f64() * 1000.0;
+                let slice = buf[..read_count].to_vec();
+                let hex = slice.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
+                let txt = String::from_utf8_lossy(&slice).to_string();
+                push_rx_record(&rx_history_clone, RxRecord {
+                    time_ms: perf_ms,
+                    session_id: sid.clone(),
+                    kind: "serial".to_string(),
+                    id: None,
+                    id_hex: None,
+                    extended: None,
+                    rtr: None,
+                    dlc: None,
+                    data: slice.clone(),
+                    data_hex: hex,
+                    text: Some(txt),
+                });
                 batch.push(RxChunkDto {
                     perf_ms,
-                    data: buf[..read_count].to_vec(),
+                    data: slice,
                 });
                 batch_bytes += read_count;
             }
@@ -836,6 +901,15 @@ fn write_serial_bytes(
     session_id: String,
     data: Vec<u8>,
 ) -> Result<usize, String> {
+    write_serial_bytes_internal(&app, &state, session_id, data)
+}
+
+pub fn write_serial_bytes_internal(
+    app: &AppHandle,
+    state: &SerialManager,
+    session_id: String,
+    data: Vec<u8>,
+) -> Result<usize, String> {
     let (active_port, epoch) = {
         let map = state.sessions.lock().map_err(|e| e.to_string())?;
         let sess = map
@@ -924,28 +998,65 @@ fn write_serial_bytes(
 
 #[tauri::command]
 fn list_pcan_channels() -> Result<Vec<PortInfoDto>, String> {
+    list_pcan_channels_internal()
+}
+
+pub fn list_pcan_channels_internal() -> Result<Vec<PortInfoDto>, String> {
     let lib = PcanLib::load()?;
     let mut channels = Vec::new();
-    for &(handle, name) in PCAN_USB_CHANNELS {
-        if let Ok(cond) = lib.get_channel_condition(handle) {
-            if cond == PCAN_CHANNEL_AVAILABLE || cond == PCAN_CHANNEL_OCCUPIED {
-                let status_str = if cond == PCAN_CHANNEL_OCCUPIED {
-                    "使用中"
-                } else {
-                    "可用"
-                };
-                channels.push(PortInfoDto {
-                    name: name.to_string(),
-                    label: format!("{} ({})", name, status_str),
-                });
+
+    if let Ok(attached) = lib.get_attached_channels() {
+        for info in attached {
+            let handle = info.channel_handle;
+            let ch_name = PCAN_USB_CHANNELS
+                .iter()
+                .find(|&&(h, _)| h == handle)
+                .map(|&(_, n)| n.to_string())
+                .unwrap_or_else(|| format!("PCAN_CHANNEL_0x{:02X}", handle));
+
+            let dev_name_str = String::from_utf8_lossy(&info.device_name);
+            let dev_name = dev_name_str.trim_end_matches('\0').trim();
+            let label = match info.channel_condition {
+                PCAN_CHANNEL_AVAILABLE => format!("{} - {} (可用)", ch_name, dev_name),
+                PCAN_CHANNEL_OCCUPIED => format!("{} - {} (已被佔用/需重插USB)", ch_name, dev_name),
+                PCAN_CHANNEL_PCANVIEW => format!("{} - {} (PCAN-View連線中)", ch_name, dev_name),
+                _ => format!("{} - {} (狀態: {})", ch_name, dev_name, info.channel_condition),
+            };
+            channels.push(PortInfoDto {
+                name: ch_name,
+                label,
+            });
+        }
+    }
+
+    if channels.is_empty() {
+        for &(handle, name) in PCAN_USB_CHANNELS {
+            if let Ok(cond) = lib.get_channel_condition(handle) {
+                if cond == PCAN_CHANNEL_AVAILABLE {
+                    channels.push(PortInfoDto {
+                        name: name.to_string(),
+                        label: format!("{} (可用)", name),
+                    });
+                } else if cond == PCAN_CHANNEL_OCCUPIED {
+                    channels.push(PortInfoDto {
+                        name: name.to_string(),
+                        label: format!("{} (已被佔用/需重插USB)", name),
+                    });
+                } else if cond == PCAN_CHANNEL_PCANVIEW {
+                    channels.push(PortInfoDto {
+                        name: name.to_string(),
+                        label: format!("{} (PCAN-View連線中)", name),
+                    });
+                }
             }
         }
     }
+
     if channels.is_empty() {
         for &(_, name) in PCAN_USB_CHANNELS {
             channels.push(PortInfoDto {
                 name: name.to_string(),
-                label: format!("{} (未偵測)", name),
+                label: format!("{} (未偵測到硬體)", name),
             });
         }
     }
@@ -959,7 +1070,16 @@ fn open_pcan_channel(
     session_id: String,
     config: PcanConfigDto,
 ) -> Result<String, String> {
-    close_session_internal(&state, &session_id);
+    open_pcan_channel_internal(&app, &state, session_id, config)
+}
+
+pub fn open_pcan_channel_internal(
+    app: &AppHandle,
+    state: &SerialManager,
+    session_id: String,
+    config: PcanConfigDto,
+) -> Result<String, String> {
+    close_session_internal(state, &session_id);
 
     let lib = PcanLib::load()?;
     let channel = parse_channel_handle(&config.channel)?;
@@ -967,6 +1087,9 @@ fn open_pcan_channel(
 
     let status = lib.initialize(channel, btr0btr1);
     if status != PCAN_ERROR_OK {
+        if status == 0x80000 {
+            return Err("PCAN 初始化失敗 (0x80000)：硬體通道目前仍被系統鎖定（因先前曾被 PCAN-View 連線過）。請將 PCAN-USB 實體傳輸線拔除並重新插上即可正常連線！".to_string());
+        }
         return Err(format!("PCAN 初始化失敗: {}", format_pcan_error(status)));
     }
 
@@ -993,6 +1116,9 @@ fn open_pcan_channel(
     }
 
     let sid = session_id.clone();
+    let app_handle = app.clone();
+    let rx_history_clone = Arc::clone(&state.rx_history);
+
     thread::spawn(move || {
         while running_clone.load(Ordering::SeqCst) {
             let mut batch = Vec::new();
@@ -1010,8 +1136,26 @@ fn open_pcan_channel(
                         } else {
                             msg.data[..dlc as usize].to_vec()
                         };
+                        let perf_ms = epoch.elapsed().as_secs_f64() * 1000.0;
+                        let hex = data.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
+                        let id_hex = if is_ext { format!("{:08X}", msg.id) } else { format!("{:03X}", msg.id) };
+
+                        push_rx_record(&rx_history_clone, RxRecord {
+                            time_ms: perf_ms,
+                            session_id: sid.clone(),
+                            kind: "pcan".to_string(),
+                            id: Some(msg.id),
+                            id_hex: Some(id_hex),
+                            extended: Some(is_ext),
+                            rtr: Some(is_rtr),
+                            dlc: Some(dlc),
+                            data: data.clone(),
+                            data_hex: hex,
+                            text: None,
+                        });
+
                         batch.push(CanRxFrameDto {
-                            perf_ms: epoch.elapsed().as_secs_f64() * 1000.0,
+                            perf_ms,
                             id: msg.id,
                             extended: is_ext,
                             rtr: is_rtr,
@@ -1021,7 +1165,7 @@ fn open_pcan_channel(
                     }
                     Ok(None) => break,
                     Err(err_code) => {
-                        let _ = app.emit(
+                        let _ = app_handle.emit(
                             "serial-error",
                             SerialErrorEventDto {
                                 session_id: sid.clone(),
@@ -1034,7 +1178,7 @@ fn open_pcan_channel(
             }
 
             if !batch.is_empty() {
-                let _ = app.emit(
+                let _ = app_handle.emit(
                     "pcan-rx-batch",
                     CanRxBatchEventDto {
                         session_id: sid.clone(),
@@ -1054,6 +1198,14 @@ fn open_pcan_channel(
 #[tauri::command]
 fn write_pcan_frame(
     state: State<'_, SerialManager>,
+    session_id: String,
+    frame: PcanTxFrameDto,
+) -> Result<usize, String> {
+    write_pcan_frame_internal(&state, session_id, frame)
+}
+
+pub fn write_pcan_frame_internal(
+    state: &SerialManager,
     session_id: String,
     frame: PcanTxFrameDto,
 ) -> Result<usize, String> {
@@ -1247,12 +1399,15 @@ fn main() {
     tauri::Builder::default()
         .manage(SerialManager::default())
         .setup(move |app| {
+            let server_running = Arc::new(AtomicBool::new(true));
+            api_server::start_api_server(app.handle().clone(), server_running);
+
             let _ = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("AccessPort (Rust Edition) - RS232/422/485 + TCP/UDP Multi-Port Debugger")
+            .title("PortAssist - RS232/422/485 + TCP/UDP + PCAN Debugger")
             .inner_size(1080.0, 740.0)
             .min_inner_size(820.0, 540.0)
             .decorations(false)
@@ -1280,5 +1435,5 @@ fn main() {
             take_detached_session,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running AccessPort Rust application");
+        .expect("error while running PortAssist application");
 }

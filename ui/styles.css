@@ -75,6 +75,15 @@ html, body {
   cursor: default;
 }
 
+.logo-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: block;
+  user-select: none;
+  pointer-events: none;
+}
+
 .logo-box {
   display: inline-flex;
   align-items: center;
@@ -1390,6 +1399,144 @@ input[type="number"]:focus,
 .pkt-ascii-sub {
   color: #2b6cb0;
   margin-left: 8px;
+}
+
+/* ==================== FIXED IN-PLACE TABLE (PCAN-View Style) ==================== */
+.fixed-view {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.fixed-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  user-select: text;
+}
+
+.fixed-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #f1f5f9;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+body.dark-theme .fixed-table thead {
+  background: #1e293b;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.fixed-table th {
+  padding: 6px 10px;
+  font-weight: 700;
+  color: #475569;
+  border-bottom: 1px solid #cbd5e1;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+body.dark-theme .fixed-table th {
+  color: #94a3b8;
+  border-bottom: 1px solid #334155;
+}
+
+.fixed-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+body.dark-theme .fixed-table td {
+  border-bottom: 1px solid #1e293b;
+}
+
+.fixed-table tbody tr:hover {
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.fixed-table .th-id, .fixed-table .td-id {
+  font-weight: 700;
+  color: #0284c7;
+  width: 110px;
+}
+
+body.dark-theme .fixed-table .td-id {
+  color: #38bdf8;
+}
+
+.fixed-table .th-type, .fixed-table .td-type {
+  width: 70px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.fixed-table .td-type.std { color: #0284c7; font-weight: 600; }
+.fixed-table .td-type.ext { color: #9333ea; font-weight: 600; }
+.fixed-table .td-type.rtr { color: #d97706; font-weight: 600; }
+
+.fixed-table .th-dlc, .fixed-table .td-dlc {
+  width: 50px;
+  text-align: center;
+  color: #64748b;
+}
+
+.fixed-table .th-data, .fixed-table .td-data {
+  min-width: 220px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+body.dark-theme .fixed-table .td-data {
+  color: #f8fafc;
+}
+
+.fixed-table .td-data .byte-mod {
+  color: #10b981;
+  font-weight: 700;
+  background: rgba(16, 185, 129, 0.15);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.fixed-table .th-ascii, .fixed-table .td-ascii {
+  width: 120px;
+  color: #3b82f6;
+}
+
+.fixed-table .th-count, .fixed-table .td-count {
+  width: 80px;
+  text-align: right;
+  font-weight: 600;
+  color: #475569;
+}
+
+body.dark-theme .fixed-table .td-count {
+  color: #cbd5e1;
+}
+
+.fixed-table .th-cycle, .fixed-table .td-cycle {
+  width: 95px;
+  text-align: right;
+  color: #059669;
+  font-weight: 600;
+}
+
+body.dark-theme .fixed-table .td-cycle {
+  color: #34d399;
+}
+
+.fixed-table .th-time, .fixed-table .td-time {
+  width: 110px;
+  color: #64748b;
+  font-size: 11px;
 }
 
 /* ==================== SCPI COMMAND PALETTE ==================== */
