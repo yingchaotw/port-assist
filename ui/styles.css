@@ -58,6 +58,18 @@ html, body {
   min-width: 0;
 }
 
+html[data-platform="macos"] .titlebar {
+  height: 36px;
+  padding-left: 78px;
+  padding-right: 8px;
+}
+
+html[data-platform="macos"] .titlebar-left,
+html[data-platform="macos"] .menubar,
+html[data-platform="macos"] .win-controls {
+  display: none;
+}
+
 .titlebar-left {
   display: flex;
   align-items: center;
@@ -1407,7 +1419,7 @@ input[type="number"]:focus,
   height: 100%;
   overflow-y: auto;
   overflow-x: auto;
-  background: var(--bg-surface);
+  background: var(--bg-editor);
   font-family: var(--font-mono);
   font-size: 12px;
 }
@@ -1427,9 +1439,9 @@ input[type="number"]:focus,
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
 }
 
-body.dark-theme .fixed-table thead {
-  background: #1e293b;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+html[data-theme="dark"] .fixed-table thead {
+  background: var(--bg-pane-header);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.35);
 }
 
 .fixed-table th {
@@ -1441,9 +1453,9 @@ body.dark-theme .fixed-table thead {
   white-space: nowrap;
 }
 
-body.dark-theme .fixed-table th {
-  color: #94a3b8;
-  border-bottom: 1px solid #334155;
+html[data-theme="dark"] .fixed-table th {
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-main);
 }
 
 .fixed-table td {
@@ -1453,12 +1465,16 @@ body.dark-theme .fixed-table th {
   vertical-align: middle;
 }
 
-body.dark-theme .fixed-table td {
-  border-bottom: 1px solid #1e293b;
+html[data-theme="dark"] .fixed-table td {
+  border-bottom: 1px solid var(--border-light);
 }
 
 .fixed-table tbody tr:hover {
   background: rgba(14, 165, 233, 0.08);
+}
+
+html[data-theme="dark"] .fixed-table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .fixed-table .th-id, .fixed-table .td-id {
@@ -1467,8 +1483,8 @@ body.dark-theme .fixed-table td {
   width: 110px;
 }
 
-body.dark-theme .fixed-table .td-id {
-  color: #38bdf8;
+html[data-theme="dark"] .fixed-table .td-id {
+  color: #60a5fa;
 }
 
 .fixed-table .th-type, .fixed-table .td-type {
@@ -1477,14 +1493,26 @@ body.dark-theme .fixed-table .td-id {
   color: #64748b;
 }
 
+html[data-theme="dark"] .fixed-table .td-type {
+  color: var(--text-muted);
+}
+
 .fixed-table .td-type.std { color: #0284c7; font-weight: 600; }
 .fixed-table .td-type.ext { color: #9333ea; font-weight: 600; }
 .fixed-table .td-type.rtr { color: #d97706; font-weight: 600; }
+
+html[data-theme="dark"] .fixed-table .td-type.std { color: #38bdf8; }
+html[data-theme="dark"] .fixed-table .td-type.ext { color: #c084fc; }
+html[data-theme="dark"] .fixed-table .td-type.rtr { color: #fbbf24; }
 
 .fixed-table .th-dlc, .fixed-table .td-dlc {
   width: 50px;
   text-align: center;
   color: #64748b;
+}
+
+html[data-theme="dark"] .fixed-table .td-dlc {
+  color: var(--text-muted);
 }
 
 .fixed-table .th-data, .fixed-table .td-data {
@@ -1494,8 +1522,8 @@ body.dark-theme .fixed-table .td-id {
   color: #0f172a;
 }
 
-body.dark-theme .fixed-table .td-data {
-  color: #f8fafc;
+html[data-theme="dark"] .fixed-table .td-data {
+  color: var(--text-main);
 }
 
 .fixed-table .td-data .byte-mod {
@@ -1506,9 +1534,18 @@ body.dark-theme .fixed-table .td-data {
   padding: 0 2px;
 }
 
+html[data-theme="dark"] .fixed-table .td-data .byte-mod {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.18);
+}
+
 .fixed-table .th-ascii, .fixed-table .td-ascii {
   width: 120px;
   color: #3b82f6;
+}
+
+html[data-theme="dark"] .fixed-table .td-ascii {
+  color: #93c5fd;
 }
 
 .fixed-table .th-count, .fixed-table .td-count {
@@ -1518,7 +1555,7 @@ body.dark-theme .fixed-table .td-data {
   color: #475569;
 }
 
-body.dark-theme .fixed-table .td-count {
+html[data-theme="dark"] .fixed-table .td-count {
   color: #cbd5e1;
 }
 
@@ -1529,7 +1566,7 @@ body.dark-theme .fixed-table .td-count {
   font-weight: 600;
 }
 
-body.dark-theme .fixed-table .td-cycle {
+html[data-theme="dark"] .fixed-table .td-cycle {
   color: #34d399;
 }
 
@@ -1537,6 +1574,10 @@ body.dark-theme .fixed-table .td-cycle {
   width: 110px;
   color: #64748b;
   font-size: 11px;
+}
+
+html[data-theme="dark"] .fixed-table .td-time {
+  color: var(--text-muted);
 }
 
 /* ==================== SCPI COMMAND PALETTE ==================== */

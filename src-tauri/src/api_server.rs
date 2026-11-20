@@ -3,7 +3,7 @@ use crate::main_helpers::{
     open_serial_from_api, send_pcan_from_api, send_serial_from_api, ApiPcanOpenReq,
     ApiPcanSendReq, ApiSerialOpenReq, ApiSerialSendReq,
 };
-use crate::SerialManager;
+use crate::manager::{EventSink, SerialManager};
 use serde_json::json;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -11,9 +11,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
 
-pub fn start_api_server(app: AppHandle, is_running: Arc<AtomicBool>) {
+pub fn start_api_server(
+    state: Arc<SerialManager>,
+    sink: Arc<dyn EventSink>,
+    is_running: Arc<AtomicBool>,
+) {
     thread::spawn(move || {
         let bind_addr = "127.0.0.1:18080";
         let listener = match TcpListener::bind(bind_addr) {
@@ -32,9 +35,10 @@ pub fn start_api_server(app: AppHandle, is_running: Arc<AtomicBool>) {
         while is_running.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    let app_clone = app.clone();
+                    let state_clone = Arc::clone(&state);
+                    let sink_clone = Arc::clone(&sink);
                     thread::spawn(move || {
-                        handle_connection(stream, app_clone);
+                        handle_connection(stream, state_clone, sink_clone);
                     });
                 }
                 Err(ref e)
@@ -53,7 +57,11 @@ pub fn start_api_server(app: AppHandle, is_running: Arc<AtomicBool>) {
     });
 }
 
-fn handle_connection(mut stream: TcpStream, app: AppHandle) {
+fn handle_connection(
+    mut stream: TcpStream,
+    state: Arc<SerialManager>,
+    sink: Arc<dyn EventSink>,
+) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
 
@@ -152,8 +160,6 @@ fn handle_connection(mut stream: TcpStream, app: AppHandle) {
         }
     }
 
-    let state = app.state::<SerialManager>();
-
     match (method, path) {
         ("GET", "/api/status") => {
             let sessions = get_active_sessions_summary(&state);
@@ -171,7 +177,7 @@ fn handle_connection(mut stream: TcpStream, app: AppHandle) {
 
         ("POST", "/api/open_serial") => {
             match serde_json::from_slice::<ApiSerialOpenReq>(&body_bytes) {
-                Ok(req) => match open_serial_from_api(&app, &state, req) {
+                Ok(req) => match open_serial_from_api(&sink, &state, req) {
                     Ok(msg) => {
                         send_json_response(&mut stream, 200, &json!({"status": "ok", "message": msg}));
                     }
@@ -187,7 +193,7 @@ fn handle_connection(mut stream: TcpStream, app: AppHandle) {
 
         ("POST", "/api/open_pcan") => {
             match serde_json::from_slice::<ApiPcanOpenReq>(&body_bytes) {
-                Ok(req) => match open_pcan_from_api(&app, &state, req) {
+                Ok(req) => match open_pcan_from_api(&sink, &state, req) {
                     Ok(msg) => {
                         send_json_response(&mut stream, 200, &json!({"status": "ok", "message": msg}));
                     }
@@ -206,7 +212,7 @@ fn handle_connection(mut stream: TcpStream, app: AppHandle) {
                 .ok()
                 .and_then(|v| v.get("sessionId").and_then(|s| s.as_str()).map(|s| s.to_string()));
 
-            match close_session_by_id(&app, &state, session_id_opt) {
+            match close_session_by_id(&sink, &state, session_id_opt) {
                 Ok(msg) => {
                     send_json_response(&mut stream, 200, &json!({"status": "ok", "message": msg}));
                 }
@@ -218,7 +224,7 @@ fn handle_connection(mut stream: TcpStream, app: AppHandle) {
 
         ("POST", "/api/send_serial") => {
             match serde_json::from_slice::<ApiSerialSendReq>(&body_bytes) {
-                Ok(req) => match send_serial_from_api(&app, &state, req) {
+                Ok(req) => match send_serial_from_api(&sink, &state, req) {
                     Ok(bytes_sent) => {
                         send_json_response(&mut stream, 200, &json!({"status": "ok", "bytesSent": bytes_sent}));
                     }
@@ -234,7 +240,7 @@ fn handle_connection(mut stream: TcpStream, app: AppHandle) {
 
         ("POST", "/api/send_pcan") => {
             match serde_json::from_slice::<ApiPcanSendReq>(&body_bytes) {
-                Ok(req) => match send_pcan_from_api(&app, &state, req) {
+                Ok(req) => match send_pcan_from_api(&sink, &state, req) {
                     Ok(bytes_sent) => {
                         send_json_response(&mut stream, 200, &json!({"status": "ok", "bytesSent": bytes_sent}));
                     }

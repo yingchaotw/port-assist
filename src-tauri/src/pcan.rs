@@ -307,3 +307,355 @@ pub fn format_pcan_error(status: u32) -> String {
         _ => format!("PCAN 錯誤碼: 0x{:05X}", status),
     }
 }
+
+pub fn list_pcan_channels_internal() -> Result<Vec<crate::manager::PortInfoDto>, String> {
+    use crate::manager::PortInfoDto;
+    let lib = PcanLib::load()?;
+    let mut channels = Vec::new();
+
+    if let Ok(attached) = lib.get_attached_channels() {
+        for info in attached {
+            let handle = info.channel_handle;
+            let ch_name = PCAN_USB_CHANNELS
+                .iter()
+                .find(|&&(h, _)| h == handle)
+                .map(|&(_, n)| n.to_string())
+                .unwrap_or_else(|| format!("PCAN_CHANNEL_0x{:02X}", handle));
+
+            let dev_name_str = String::from_utf8_lossy(&info.device_name);
+            let dev_name = dev_name_str.trim_end_matches('\0').trim();
+            let label = match info.channel_condition {
+                PCAN_CHANNEL_AVAILABLE => format!("{} - {} (可用)", ch_name, dev_name),
+                PCAN_CHANNEL_OCCUPIED => format!("{} - {} (已被佔用/需重插USB)", ch_name, dev_name),
+                PCAN_CHANNEL_PCANVIEW => format!("{} - {} (PCAN-View連線中)", ch_name, dev_name),
+                _ => format!("{} - {} (狀態: {})", ch_name, dev_name, info.channel_condition),
+            };
+            channels.push(PortInfoDto {
+                name: ch_name,
+                label,
+            });
+        }
+    }
+
+    if channels.is_empty() {
+        for &(handle, name) in PCAN_USB_CHANNELS {
+            if let Ok(cond) = lib.get_channel_condition(handle) {
+                if cond == PCAN_CHANNEL_AVAILABLE {
+                    channels.push(PortInfoDto {
+                        name: name.to_string(),
+                        label: format!("{} (可用)", name),
+                    });
+                } else if cond == PCAN_CHANNEL_OCCUPIED {
+                    channels.push(PortInfoDto {
+                        name: name.to_string(),
+                        label: format!("{} (已被佔用/需重插USB)", name),
+                    });
+                } else if cond == PCAN_CHANNEL_PCANVIEW {
+                    channels.push(PortInfoDto {
+                        name: name.to_string(),
+                        label: format!("{} (PCAN-View連線中)", name),
+                    });
+                }
+            }
+        }
+    }
+
+    if channels.is_empty() {
+        for &(_, name) in PCAN_USB_CHANNELS {
+            channels.push(PortInfoDto {
+                name: name.to_string(),
+                label: format!("{} (未偵測到硬體)", name),
+            });
+        }
+    }
+    Ok(channels)
+}
+
+#[tauri::command]
+pub fn list_pcan_channels() -> Result<Vec<crate::manager::PortInfoDto>, String> {
+    list_pcan_channels_internal()
+}
+
+pub fn open_pcan_channel_internal(
+    sink: &Arc<dyn crate::manager::EventSink>,
+    state: &crate::manager::SerialManager,
+    session_id: String,
+    config: PcanConfigDto,
+) -> Result<String, String> {
+    use crate::manager::{
+        close_session_internal, push_rx_record, ActivePort, PortSession, RxRecord,
+        SerialErrorEventDto, TransportEvent,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    close_session_internal(state, &session_id);
+
+    let lib = PcanLib::load()?;
+    let channel = parse_channel_handle(&config.channel)?;
+    let btr0btr1 = baud_to_btr0btr1(config.baud_rate)?;
+
+    let status = lib.initialize(channel, btr0btr1);
+    if status != PCAN_ERROR_OK {
+        if status == 0x80000 {
+            return Err("PCAN 初始化失敗 (0x80000)：硬體通道目前仍被系統鎖定（因先前曾被 PCAN-View 連線過）。請將 PCAN-USB 實體傳輸線拔除並重新插上即可正常連線！".to_string());
+        }
+        return Err(format!("PCAN 初始化失敗: {}", format_pcan_error(status)));
+    }
+
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = Arc::clone(&running);
+    let epoch = Instant::now();
+    let lib_reader = Arc::clone(&lib);
+    let active_port = Arc::new(Mutex::new(ActivePort::Pcan {
+        lib: Arc::clone(&lib),
+        channel,
+    }));
+
+    {
+        let mut map = state.sessions.lock().map_err(|e| e.to_string())?;
+        map.insert(
+            session_id.clone(),
+            PortSession {
+                port_name: config.channel.clone(),
+                active_port,
+                running,
+                epoch,
+            },
+        );
+    }
+
+    let sid = session_id.clone();
+    let sink_clone = Arc::clone(sink);
+    let rx_history_clone = Arc::clone(&state.rx_history);
+
+    thread::spawn(move || {
+        while running_clone.load(Ordering::SeqCst) {
+            let mut batch = Vec::new();
+            for _ in 0..64 {
+                match lib_reader.read(channel) {
+                    Ok(Some(msg)) => {
+                        if (msg.msg_type & PCAN_MESSAGE_STATUS) != 0 {
+                            continue;
+                        }
+                        let dlc = msg.len.min(8);
+                        let is_rtr = (msg.msg_type & PCAN_MESSAGE_RTR) != 0;
+                        let is_ext = (msg.msg_type & PCAN_MESSAGE_EXTENDED) != 0;
+                        let data = if is_rtr {
+                            Vec::new()
+                        } else {
+                            msg.data[..dlc as usize].to_vec()
+                        };
+                        let perf_ms = epoch.elapsed().as_secs_f64() * 1000.0;
+                        let hex = data
+                            .iter()
+                            .map(|b| format!("{:02X}", b))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let id_hex = if is_ext {
+                            format!("{:08X}", msg.id)
+                        } else {
+                            format!("{:03X}", msg.id)
+                        };
+
+                        push_rx_record(
+                            &rx_history_clone,
+                            RxRecord {
+                                time_ms: perf_ms,
+                                session_id: sid.clone(),
+                                kind: "pcan".to_string(),
+                                id: Some(msg.id),
+                                id_hex: Some(id_hex),
+                                extended: Some(is_ext),
+                                rtr: Some(is_rtr),
+                                dlc: Some(dlc),
+                                data: data.clone(),
+                                data_hex: hex,
+                                text: None,
+                            },
+                        );
+
+                        batch.push(CanRxFrameDto {
+                            perf_ms,
+                            id: msg.id,
+                            extended: is_ext,
+                            rtr: is_rtr,
+                            dlc,
+                            data,
+                        });
+                    }
+                    Ok(None) => break,
+                    Err(err_code) => {
+                        sink_clone.emit(TransportEvent::Error(SerialErrorEventDto {
+                            session_id: sid.clone(),
+                            error: format_pcan_error(err_code),
+                        }));
+                        break;
+                    }
+                }
+            }
+
+            if !batch.is_empty() {
+                sink_clone.emit(TransportEvent::CanRxBatch(CanRxBatchEventDto {
+                    session_id: sid.clone(),
+                    batch_now_ms: epoch.elapsed().as_secs_f64() * 1000.0,
+                    frames: batch,
+                }));
+            } else {
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    });
+
+    Ok(format!("{} @ {} bps", config.channel, config.baud_rate))
+}
+
+#[tauri::command]
+pub fn open_pcan_channel(
+    sink: tauri::State<'_, Arc<dyn crate::manager::EventSink>>,
+    state: tauri::State<'_, Arc<crate::manager::SerialManager>>,
+    session_id: String,
+    config: PcanConfigDto,
+) -> Result<String, String> {
+    open_pcan_channel_internal(sink.inner(), state.inner(), session_id, config)
+}
+
+pub fn write_pcan_frame_internal(
+    state: &crate::manager::SerialManager,
+    session_id: String,
+    frame: PcanTxFrameDto,
+) -> Result<usize, String> {
+    use crate::manager::ActivePort;
+
+    let max_id = if frame.extended { 0x1FFF_FFFF } else { 0x7FF };
+    if frame.id > max_id {
+        return Err(format!(
+            "CAN ID 0x{:X} 超出{}範圍 (最大 0x{:X})",
+            frame.id,
+            if frame.extended {
+                "擴展幀 29-bit"
+            } else {
+                "標準幀 11-bit"
+            },
+            max_id
+        ));
+    }
+    if frame.data.len() > 8 {
+        return Err(format!(
+            "Classic CAN 單幀最多 8 Bytes（目前 {} Bytes）",
+            frame.data.len()
+        ));
+    }
+
+    let (lib, channel) = {
+        let map = state.sessions.lock().map_err(|e| e.to_string())?;
+        let sess = map
+            .get(&session_id)
+            .ok_or_else(|| "此分頁的 PCAN 連線尚未開啟".to_string())?;
+        let guard = sess.active_port.lock().map_err(|e| e.to_string())?;
+        match *guard {
+            ActivePort::Pcan { ref lib, channel } => (Arc::clone(lib), channel),
+            _ => return Err("目前分頁不是 PCAN 模式".to_string()),
+        }
+    };
+
+    let mut msg_type = if frame.extended {
+        PCAN_MESSAGE_EXTENDED
+    } else {
+        PCAN_MESSAGE_STANDARD
+    };
+    if frame.rtr {
+        msg_type |= PCAN_MESSAGE_RTR;
+    }
+
+    let mut raw_data = [0u8; 8];
+    let dlc = frame.data.len() as u8;
+    raw_data[..frame.data.len()].copy_from_slice(&frame.data);
+
+    let mut msg = TPCANMsg {
+        id: frame.id,
+        msg_type,
+        len: dlc,
+        data: raw_data,
+    };
+
+    let status = lib.write(channel, &mut msg);
+    if status != PCAN_ERROR_OK {
+        return Err(format!("PCAN 發送失敗: {}", format_pcan_error(status)));
+    }
+    Ok(frame.data.len())
+}
+
+#[tauri::command]
+pub fn write_pcan_frame(
+    state: tauri::State<'_, Arc<crate::manager::SerialManager>>,
+    session_id: String,
+    frame: PcanTxFrameDto,
+) -> Result<usize, String> {
+    write_pcan_frame_internal(state.inner(), session_id, frame)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manager::SerialManager;
+
+    #[test]
+    fn test_baud_to_btr0btr1() {
+        assert_eq!(baud_to_btr0btr1(1_000_000).unwrap(), 0x0014);
+        assert_eq!(baud_to_btr0btr1(500_000).unwrap(), 0x001C);
+        assert_eq!(baud_to_btr0btr1(250_000).unwrap(), 0x011C);
+        assert_eq!(baud_to_btr0btr1(125_000).unwrap(), 0x031C);
+        assert_eq!(baud_to_btr0btr1(10_000).unwrap(), 0x672F);
+        assert!(baud_to_btr0btr1(123_456).is_err());
+    }
+
+    #[test]
+    fn test_write_pcan_frame_validation() {
+        let mgr = SerialManager::default();
+
+        // Standard 11-bit max is 0x7FF
+        let err_std = write_pcan_frame_internal(
+            &mgr,
+            "s1".to_string(),
+            PcanTxFrameDto {
+                id: 0x800,
+                extended: false,
+                rtr: false,
+                data: vec![1, 2, 3],
+            },
+        )
+        .unwrap_err();
+        assert!(err_std.contains("11-bit"));
+
+        // Extended 29-bit max is 0x1FFFFFFF
+        let err_ext = write_pcan_frame_internal(
+            &mgr,
+            "s1".to_string(),
+            PcanTxFrameDto {
+                id: 0x2000_0000,
+                extended: true,
+                rtr: false,
+                data: vec![1, 2, 3],
+            },
+        )
+        .unwrap_err();
+        assert!(err_ext.contains("29-bit"));
+
+        // Max DLC is 8 bytes
+        let err_dlc = write_pcan_frame_internal(
+            &mgr,
+            "s1".to_string(),
+            PcanTxFrameDto {
+                id: 0x123,
+                extended: false,
+                rtr: false,
+                data: vec![0; 9],
+            },
+        )
+        .unwrap_err();
+        assert!(err_dlc.contains("8 Bytes"));
+    }
+}

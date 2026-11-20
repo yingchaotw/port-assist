@@ -1,5 +1,9 @@
 // AccessPort (Rust Edition) High-Performance Multi-Port Frontend Controller
 (() => {
+  if (/Mac/i.test(navigator.platform || navigator.userAgent || "")) {
+    document.documentElement.setAttribute("data-platform", "macos");
+  }
+
   const getTauriInvoke = () => {
     if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
       return window.__TAURI__.core.invoke;
@@ -22,65 +26,34 @@
   let currentHbWidth = 24;
   let currentAbWidth = 9;
   const OVERSCAN_ROWS = 5; // extra rows rendered above and below visible viewport
-  const MAX_SINGLE_ROW_COLS = 512; // allow up to 512 bytes on a single line without wrapping
-
-  const HEX2_TABLE = Array.from({ length: 256 }, (_, i) =>
-    i.toString(16).toUpperCase().padStart(2, "0")
-  );
-  const ASCII_TABLE = Array.from({ length: 256 }, (_, i) =>
-    i >= 0x20 && i <= 0x7e ? String.fromCharCode(i) : "."
-  );
-
-  const toHex2 = (b) => HEX2_TABLE[b & 0xff];
-  const toHex8 = (n) => n.toString(16).toUpperCase().padStart(8, "0");
-  const toPrintableAscii = (b) => ASCII_TABLE[b & 0xff];
-
-  const bytesToHexString = (bytes, wrap16 = false) => {
-    if (!bytes || bytes.length === 0) return "";
-    if (!wrap16) {
-      return bytes.map(toHex2).join(" ");
-    }
-    const lines = [];
-    for (let i = 0; i < bytes.length; i += 16) {
-      const slice = bytes.slice(i, i + 16);
-      lines.push(slice.map(toHex2).join(" "));
-    }
-    return lines.join("\n");
-  };
-
-  const bytesToUtf8Text = (bytes) => {
-    if (!bytes || bytes.length === 0) return "";
-    try {
-      return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
-    } catch {
-      return bytes.map((b) => String.fromCharCode(b)).join("");
-    }
-  };
-
-  const utf8TextToBytes = (text) => Array.from(new TextEncoder().encode(text));
-
-  const parseHexInput = (raw) => {
-    const cleaned = raw.replace(/[^0-9a-fA-F]/g, "");
-    const bytes = [];
-    for (let i = 0; i < cleaned.length; i += 2) {
-      const pair = cleaned.substring(i, i + 2);
-      bytes.push(parseInt(pair, 16));
-    }
-    return {
-      bytes,
-      hasOddNibble: cleaned.length % 2 !== 0,
-    };
-  };
-
-  const formatDateToTimeStr = (d) => {
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const ss = String(d.getSeconds()).padStart(2, "0");
-    const ms = String(d.getMilliseconds()).padStart(3, "0");
-    return `${hh}:${mm}:${ss}.${ms}`;
-  };
-
-  const formatTimestamp = () => formatDateToTimeStr(new Date());
+  const { t, getLang, setLang, applyI18nToDom } = window.PortAssist.i18n;
+  const {
+    toHex2,
+    toHex8,
+    toPrintableAscii,
+    bytesToHexString,
+    bytesToUtf8Text,
+    utf8TextToBytes,
+    parseHexInput,
+    formatDateToTimeStr,
+    formatTimestamp,
+  } = window.PortAssist.codec;
+  const {
+    MAX_SINGLE_ROW_COLS,
+    rebuildRowSlicesForSession,
+    incrementalUpdateRowsForFrame,
+    appendChunkIncremental,
+    recalculateFramesState,
+  } = window.PortAssist.framer;
+  const { applyPcanBatchToSession } = window.PortAssist.canParser;
+  const {
+    DEFAULT_SCPI_TEMPLATES,
+    parseDataListRowPayload,
+    parseExCommandIni,
+    serializeExCommandIni,
+  } = window.PortAssist.excommand;
+  const { buildRxLogExport } = window.PortAssist.exporter;
+  const { createSessionState, serializeSessionForDetach } = window.PortAssist.sessionModel;
 
   // ==================== MULTI-SESSION STATE ====================
   let nextSessionSeq = 1;
@@ -89,93 +62,9 @@
   let activeSessionId = "";
 
   function createSessionObject(preferredPort) {
-    const seq = nextSessionSeq++;
-    const id = `session-${seq}`;
-    const initialBytes = utf8TextToBytes("AT+GMR\r\n");
-
-    return {
-      id,
-      seq,
-      customTitle: "",
-      isOpen: false,
-      connType: "serial", // 'serial' | 'tcp_client' | 'tcp_server' | 'udp'
-      portName: preferredPort || "LOOPBACK",
-      baudRate: "115200",
-      parity: "None",
-      dataBits: "8",
-      stopBits: "1",
-      flowControl: "None",
-
-      tcpClientHost: "127.0.0.1",
-      tcpClientPort: "8080",
-      tcpServerHost: "0.0.0.0",
-      tcpServerPort: "8080",
-      tcpServerClients: 0,
-      udpLocalPort: "8081",
-      udpHost: "127.0.0.1",
-      udpPort: "8080",
-
-      pcanChannel: "PCAN_USBBUS1",
-      pcanBaud: "500000",
-      canTxId: "7DF",
-      canTxType: "std",
-
-      rxMode: "dual", // 'dual' | 'hex' | 'text' | 'packets'
-      txTab: "editor", // 'editor' | 'datalist'
-      rxBytes: [], // pure RX bytes for RX counter & export
-      viewBytes: [], // displayed bytes (RX + optional inline TX)
-      rxRawChunks: [], // { perfMs, timeStr, dir: 'RX'|'TX', bytes: number[] }
-      rxByteFrameIds: [], // frameId for each byte in viewBytes
-      rxFrames: [], // { id, dir: 'RX'|'TX', startIdx, length, timeStr, lastPerfMs }
-      rowSlices: [], // precomputed virtual row descriptors { rowStart, rowEnd, isNewFrameRow, frameObj }
-      maxCols: 16,
-
-      frameBreakEnabled: true,
-      frameRule: "timeout_maxlen", // 'timeout_maxlen' | 'delimiter' | 'fixed_len'
-      frameTimeoutMs: 20,
-      frameMaxLen: 0, // 0 = no max length limit (in fixed_len, defaults to 16)
-      frameDelimHex: "0D 0A",
-      frameLayout: "frame_single", // 'frame_single' | 'continuous_16' | 'continuous_32' | 'frame_wrap16'
-      showTimestamp: true,
-      showTxInline: true,
-      rxPaused: false,
-
-      txBytes: initialBytes,
-      txHexText: bytesToHexString(initialBytes, true),
-      txAsciiText: bytesToUtf8Text(initialBytes),
-      txHasOddNibble: false,
-      txCrlf: false,
-
-      packets: [],
-      fixedMap: new Map(),
-      rxPktCount: 0,
-      txByteCount: 0,
-      txPktCount: 0,
-      selectedRxIndex: -1,
-      unreadRxBytes: 0,
-
-      dtr: false,
-      rts: false,
-      cts: false,
-      dsr: false,
-      cd: false,
-      ri: false,
-
-      autoSendEnabled: false,
-      autoSendInterval: 1000,
-      autoSendMaxCount: 0,
-      autoSendCurrentCount: 0,
-      autoSendTimer: null,
-
-      statusText: `分頁 #${seq} 就緒 — 串口未開啟`,
-      datalistCursor: 0,
-      datalist: [
-        { enabled: true, name: "AT 測試指令", format: "ASCII", payload: "AT+GMR\\r\\n" },
-        { enabled: true, name: "Modbus 讀保持暫存器", format: "HEX", payload: "01 03 00 00 00 02 C4 0B" },
-        { enabled: false, name: "查詢設備狀態", format: "HEX", payload: "AA 55 01 00 00 56" },
-        { enabled: false, name: "心跳封包 (Heartbeat)", format: "ASCII", payload: "PING\\r\\n" },
-      ],
-    };
+    const sess = createSessionState(nextSessionSeq++, preferredPort);
+    sess.statusText = t("status.tabReady", { seq: sess.seq });
+    return sess;
   }
 
   const getSessionById = (id) => sessions.find((s) => s.id === id) || null;
@@ -189,6 +78,7 @@
     titlebarDragSpacer: document.getElementById("titlebar-drag-spacer"),
     btnTabsLeft: document.getElementById("btn-tabs-left"),
     btnTabsRight: document.getElementById("btn-tabs-right"),
+    menuToggleLang: document.getElementById("menu-toggle-lang"),
     btnThemeToggle: document.getElementById("btn-theme-toggle"),
     menuFontBtns: document.querySelectorAll(".menu-font-btn"),
     sessionTabsList: document.getElementById("session-tabs-list"),
@@ -488,7 +378,10 @@
       el.sessionTabsList.appendChild(tab);
     });
 
-    el.sessionSummary.textContent = `${openCount}/${sessions.length} 連線`;
+    el.sessionSummary.textContent = t("status.connSummary", {
+      open: openCount,
+      total: sessions.length,
+    });
     requestAnimationFrame(() => {
       updateTabScrollButtons();
       const activeEl = el.sessionTabsList.querySelector(".session-tab.active");
@@ -548,7 +441,7 @@
   function updateRxPauseUi(sess) {
     if (!sess || sess.id !== activeSessionId || !el.btnRxPause) return;
     el.btnRxPause.classList.toggle("paused", Boolean(sess.rxPaused));
-    el.btnRxPause.textContent = sess.rxPaused ? "▶ 繼續渲染 (背景接收中)" : "⏸ 暫停畫面";
+    el.btnRxPause.textContent = sess.rxPaused ? t("rx.resume") : t("rx.pause");
   }
 
   function updateFrameRuleUi(sess) {
@@ -608,7 +501,7 @@
       el.txHexStatus.textContent = "提示：尚有未湊滿 2 位數的半位元組";
       el.txHexStatus.classList.add("error");
     } else {
-      el.txHexStatus.textContent = `格式正常 (${sess.txBytes.length} Bytes)`;
+      el.txHexStatus.textContent = t("tx.hexOkBytes", { count: sess.txBytes.length });
       el.txHexStatus.classList.remove("error");
     }
     updateTxGutterAndPill(sess);
@@ -798,7 +691,7 @@
 
     const loopOpt = document.createElement("option");
     loopOpt.value = "LOOPBACK";
-    loopOpt.textContent = "LOOPBACK (內建迴路測試串口)";
+    loopOpt.textContent = t("loopback.label");
     el.selPort.appendChild(loopOpt);
 
     if (sess.portName && Array.from(el.selPort.options).some((o) => o.value === sess.portName)) {
@@ -983,7 +876,7 @@
       sess.ri = false;
       updatePortUi(sess);
       renderSessionTabs();
-      setSessionStatus(sess, `[${formatSessionTabTitle(sess)}] 通訊已關閉`);
+      setSessionStatus(sess, t("status.closed", { title: formatSessionTabTitle(sess) }));
     }
   }
 
@@ -993,15 +886,15 @@
     el.portLed.classList.toggle("on", sess.isOpen);
 
     if (sess.connType === "tcp_client") {
-      el.portToggleLabel.textContent = sess.isOpen ? "中斷連線" : "連線伺服器";
+      el.portToggleLabel.textContent = sess.isOpen ? (getLang() === "en" ? "Disconnect" : "中斷連線") : (getLang() === "en" ? "Connect" : "連線伺服器");
     } else if (sess.connType === "tcp_server") {
-      el.portToggleLabel.textContent = sess.isOpen ? "停止監聽" : "啟動監聽";
+      el.portToggleLabel.textContent = sess.isOpen ? (getLang() === "en" ? "Stop Server" : "停止監聽") : (getLang() === "en" ? "Start Server" : "啟動監聽");
     } else if (sess.connType === "udp") {
-      el.portToggleLabel.textContent = sess.isOpen ? "關閉 UDP" : "開啟 UDP";
+      el.portToggleLabel.textContent = sess.isOpen ? (getLang() === "en" ? "Close UDP" : "關閉 UDP") : (getLang() === "en" ? "Open UDP" : "開啟 UDP");
     } else if (sess.connType === "pcan") {
-      el.portToggleLabel.textContent = sess.isOpen ? "關閉 PCAN" : "開啟 PCAN";
+      el.portToggleLabel.textContent = sess.isOpen ? (getLang() === "en" ? "Close PCAN" : "關閉 PCAN") : (getLang() === "en" ? "Open PCAN" : "開啟 PCAN");
     } else {
-      el.portToggleLabel.textContent = sess.isOpen ? "關閉串口" : "開啟串口";
+      el.portToggleLabel.textContent = sess.isOpen ? t("sidebar.closeConn") : t("sidebar.openConn");
     }
 
     el.statusDot.classList.toggle("open", sess.isOpen);
@@ -1086,454 +979,14 @@
     }
   }
 
-  // ==================== INCREMENTAL O(1) FRAME & ROW ENGINE ====================
-  function rebuildRowSlicesForSession(sess) {
-    const bytes = sess.viewBytes;
-    const layout = sess.frameLayout || "frame_single";
-    const rowSlices = [];
-    let maxCols = layout === "continuous_32" ? 32 : 16;
-
-    if (bytes.length > 0) {
-      if (sess.frameBreakEnabled && layout === "frame_single" && sess.rxFrames.length > 0) {
-        sess.rxFrames.forEach((frame, fIndex) => {
-          for (
-            let offsetInFrame = 0;
-            offsetInFrame < frame.length;
-            offsetInFrame += MAX_SINGLE_ROW_COLS
-          ) {
-            const rStart = frame.startIdx + offsetInFrame;
-            const rEnd = Math.min(rStart + MAX_SINGLE_ROW_COLS, frame.startIdx + frame.length);
-            const rowLen = rEnd - rStart;
-            if (rowLen > maxCols) maxCols = rowLen;
-            rowSlices.push({
-              rowStart: rStart,
-              rowEnd: rEnd,
-              isNewFrameRow: offsetInFrame === 0 && fIndex > 0,
-              frameObj: frame,
-            });
-          }
-        });
-      } else if (sess.frameBreakEnabled && layout === "frame_wrap16" && sess.rxFrames.length > 0) {
-        maxCols = 16;
-        sess.rxFrames.forEach((frame, fIndex) => {
-          for (let offsetInFrame = 0; offsetInFrame < frame.length; offsetInFrame += 16) {
-            const rStart = frame.startIdx + offsetInFrame;
-            const rEnd = Math.min(rStart + 16, frame.startIdx + frame.length);
-            rowSlices.push({
-              rowStart: rStart,
-              rowEnd: rEnd,
-              isNewFrameRow: offsetInFrame === 0 && fIndex > 0,
-              frameObj: frame,
-            });
-          }
-        });
-      } else {
-        const stride = layout === "continuous_32" ? 32 : 16;
-        maxCols = stride;
-        for (let rStart = 0; rStart < bytes.length; rStart += stride) {
-          const fid = sess.rxByteFrameIds[rStart] ?? 0;
-          rowSlices.push({
-            rowStart: rStart,
-            rowEnd: Math.min(rStart + stride, bytes.length),
-            isNewFrameRow: false,
-            frameObj: sess.rxFrames[fid] || null,
-          });
-        }
-      }
-    }
-
-    sess.rowSlices = rowSlices;
-    sess.maxCols = maxCols;
-  }
-
-  // O(1) incremental update of rowSlices when bytes are appended to `frame`
-  // Mutates incomplete tail rowSlice in place so its live DOM node can append new bytes 1-by-1!
-  function incrementalUpdateRowsForFrame(sess, frame, prevFrameLength) {
-    const layout = sess.frameLayout || "frame_single";
-
-    if (sess.frameBreakEnabled && (layout === "frame_single" || layout === "frame_wrap16")) {
-      const wrapWidth = layout === "frame_single" ? MAX_SINGLE_ROW_COLS : 16;
-      let startOffset = 0;
-      if (prevFrameLength > 0) {
-        const rem = prevFrameLength % wrapWidth;
-        if (rem !== 0) {
-          const tailOffset = prevFrameLength - rem;
-          const tailStart = frame.startIdx + tailOffset;
-          const lastSlice =
-            sess.rowSlices.length > 0 ? sess.rowSlices[sess.rowSlices.length - 1] : null;
-          if (lastSlice && lastSlice.rowStart === tailStart) {
-            const newEnd = Math.min(tailStart + wrapWidth, frame.startIdx + frame.length);
-            lastSlice.rowEnd = newEnd;
-            const rowLen = newEnd - tailStart;
-            if (layout === "frame_single" && rowLen > sess.maxCols) {
-              sess.maxCols = rowLen;
-            }
-            startOffset = tailOffset + wrapWidth;
-          } else {
-            if (lastSlice) sess.rowSlices.pop();
-            startOffset = tailOffset;
-          }
-        } else {
-          startOffset = prevFrameLength;
-        }
-      }
-      for (
-        let offsetInFrame = startOffset;
-        offsetInFrame < frame.length;
-        offsetInFrame += wrapWidth
-      ) {
-        const rStart = frame.startIdx + offsetInFrame;
-        const rEnd = Math.min(rStart + wrapWidth, frame.startIdx + frame.length);
-        const rowLen = rEnd - rStart;
-        if (layout === "frame_single" && rowLen > sess.maxCols) {
-          sess.maxCols = rowLen;
-        }
-        sess.rowSlices.push({
-          rowStart: rStart,
-          rowEnd: rEnd,
-          isNewFrameRow: offsetInFrame === 0 && frame.id > 0,
-          frameObj: frame,
-        });
-      }
-    } else {
-      // Continuous 16B or 32B mode: update incomplete tail slice in place, then push any new rows
-      const stride = layout === "continuous_32" ? 32 : 16;
-      sess.maxCols = stride;
-      const totalBytes = sess.viewBytes.length;
-      if (sess.rowSlices.length > 0) {
-        const lastSlice = sess.rowSlices[sess.rowSlices.length - 1];
-        if (lastSlice.rowEnd - lastSlice.rowStart < stride) {
-          lastSlice.rowEnd = Math.min(lastSlice.rowStart + stride, totalBytes);
-        }
-      }
-      const nextStart =
-        sess.rowSlices.length > 0 ? sess.rowSlices[sess.rowSlices.length - 1].rowEnd : 0;
-      for (let rStart = nextStart; rStart < totalBytes; rStart += stride) {
-        const fid = sess.rxByteFrameIds[rStart] ?? 0;
-        sess.rowSlices.push({
-          rowStart: rStart,
-          rowEnd: Math.min(rStart + stride, totalBytes),
-          isNewFrameRow: false,
-          frameObj: sess.rxFrames[fid] || null,
-        });
-      }
-    }
-  }
-
-  // O(chunk.length) incremental chunk append — supports Timeout + MaxLen + Hex Delimiter + FixedLen!
-  function appendChunkIncremental(sess, chunk) {
-    const len = chunk.bytes.length;
-    if (len === 0) return;
-    const dir = chunk.dir || "RX";
-
-    // Handle TX chunks
-    if (dir === "TX") {
-      sess.packets.push({
-        time: chunk.timeStr,
-        dir: "TX",
-        previewBytes: chunk.bytes.length > 256 ? chunk.bytes.slice(0, 256) : chunk.bytes.slice(),
-        byteLength: len,
-        lastPerfMs: chunk.perfMs,
-        closed: true,
-      });
-
-      if (!sess.fixedMap) sess.fixedMap = new Map();
-      if (sess.connType !== "pcan") {
-        const fixedKey = `${dir}_0`;
-        let item = sess.fixedMap.get(fixedKey);
-        const nowPerf = chunk.perfMs || performance.now();
-        if (!item) {
-          sess.fixedMap.set(fixedKey, {
-            key: fixedKey,
-            idStr: `[${dir}]`,
-            rawId: 1,
-            extended: false,
-            rtr: false,
-            typeStr: (sess.connType || "COM").toUpperCase(),
-            dlc: len,
-            data: chunk.bytes.slice(0, 32),
-            prevData: [],
-            count: 1,
-            lastPerfMs: nowPerf,
-            cycleMs: 0,
-            timeStr: chunk.timeStr,
-          });
-        } else {
-          item.count += 1;
-          item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
-          item.lastPerfMs = nowPerf;
-          item.timeStr = chunk.timeStr;
-          item.dlc = len;
-          item.prevData = item.data;
-          item.data = chunk.bytes.slice(0, 32);
-        }
-      }
-      if (!sess.showTxInline) return;
-
-      const startByteCursor = sess.viewBytes.length;
-      for (let i = 0; i < len; i++) {
-        sess.viewBytes.push(chunk.bytes[i]);
-      }
-      const fid = sess.rxFrames.length;
-      const txFrame = {
-        id: fid,
-        dir: "TX",
-        startIdx: startByteCursor,
-        length: len,
-        prevRenderedLen: len,
-        closed: true,
-        timeStr: chunk.timeStr,
-        lastPerfMs: chunk.perfMs,
-      };
-      sess.rxFrames.push(txFrame);
-      for (let i = 0; i < len; i++) {
-        sess.rxByteFrameIds.push(fid);
-      }
-      incrementalUpdateRowsForFrame(sess, txFrame, 0);
-      return;
-    }
-
-    // Handle RX chunks
-    if (!sess.fixedMap) sess.fixedMap = new Map();
-    if (sess.connType !== "pcan") {
-      const fixedKey = "RX_0";
-      let item = sess.fixedMap.get(fixedKey);
-      const nowPerf = chunk.perfMs || performance.now();
-      if (!item) {
-        sess.fixedMap.set(fixedKey, {
-          key: fixedKey,
-          idStr: "[RX]",
-          rawId: 0,
-          extended: false,
-          rtr: false,
-          typeStr: (sess.connType || "COM").toUpperCase(),
-          dlc: len,
-          data: chunk.bytes.slice(0, 32),
-          prevData: [],
-          count: 1,
-          lastPerfMs: nowPerf,
-          cycleMs: 0,
-          timeStr: chunk.timeStr,
-        });
-      } else {
-        item.count += 1;
-        item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
-        item.lastPerfMs = nowPerf;
-        item.timeStr = chunk.timeStr;
-        item.dlc = len;
-        item.prevData = item.data;
-        item.data = chunk.bytes.slice(0, 32);
-      }
-    }
-    const rule = sess.frameRule || "timeout_maxlen";
-    const useTimeout =
-      sess.frameBreakEnabled &&
-      (rule === "timeout_maxlen" || rule === "delimiter") &&
-      sess.frameTimeoutMs > 0;
-    const timeoutMs = Math.max(1, sess.frameTimeoutMs || 20);
-    const maxLen = !sess.frameBreakEnabled
-      ? 0
-      : rule === "fixed_len"
-      ? Math.max(1, sess.frameMaxLen || 16)
-      : Math.max(0, sess.frameMaxLen || 0);
-    const delimBytes =
-      sess.frameBreakEnabled && rule === "delimiter"
-        ? parseHexInput(sess.frameDelimHex || "").bytes
-        : [];
-    const delimLen = delimBytes.length;
-
-    // 1. Check if the currently open RX frame timed out before this chunk arrived
-    const tailFrame = sess.rxFrames.length > 0 ? sess.rxFrames[sess.rxFrames.length - 1] : null;
-    if (
-      tailFrame &&
-      tailFrame.dir === "RX" &&
-      !tailFrame.closed &&
-      useTimeout &&
-      chunk.perfMs - tailFrame.lastPerfMs > timeoutMs
-    ) {
-      tailFrame.closed = true;
-      const tailPkt = sess.packets.length > 0 ? sess.packets[sess.packets.length - 1] : null;
-      if (tailPkt && tailPkt.dir === "RX") tailPkt.closed = true;
-    }
-
-    // Helper to compute exact per-frame timestamp when a frame starts at `byteIdxInChunk`
-    const baud = Math.max(300, parseInt(sess.baudRate, 10) || 115200);
-    const msPerByte = 10000 / baud;
-    const getFrameTimeAtOffset = (byteIdxInChunk) => {
-      if (byteIdxInChunk <= 0 || typeof chunk.wallMs !== "number") {
-        return chunk.timeStr;
-      }
-      return formatDateToTimeStr(new Date(Math.round(chunk.wallMs + byteIdxInChunk * msPerByte)));
-    };
-
-    // 2. Fast block path when no Hex delimiter is active (handles pure timeout, disabled, AND maxLen / fixed_len!)
-    if (delimLen === 0) {
-      let offset = 0;
-      while (offset < len) {
-        let curFrame = sess.rxFrames.length > 0 ? sess.rxFrames[sess.rxFrames.length - 1] : null;
-        let curPkt = sess.packets.length > 0 ? sess.packets[sess.packets.length - 1] : null;
-
-        if (!curFrame || curFrame.closed || curFrame.dir !== "RX") {
-          const fid = sess.rxFrames.length;
-          const fTimeStr = getFrameTimeAtOffset(offset);
-          curFrame = {
-            id: fid,
-            dir: "RX",
-            startIdx: sess.viewBytes.length,
-            length: 0,
-            prevRenderedLen: 0,
-            closed: false,
-            timeStr: fTimeStr,
-            lastPerfMs: chunk.perfMs + offset * msPerByte,
-          };
-          sess.rxFrames.push(curFrame);
-
-          curPkt = {
-            time: fTimeStr,
-            dir: "RX",
-            previewBytes: [],
-            byteLength: 0,
-            lastPerfMs: chunk.perfMs + offset * msPerByte,
-            closed: false,
-          };
-          sess.packets.push(curPkt);
-          sess.rxPktCount += 1;
-        }
-
-        const prevLen = curFrame.length;
-        const remainingInChunk = len - offset;
-        const take =
-          maxLen > 0
-            ? Math.min(remainingInChunk, Math.max(1, maxLen - curFrame.length))
-            : remainingInChunk;
-        const endOffset = offset + take;
-        const fid = curFrame.id;
-
-        for (let i = offset; i < endOffset; i++) {
-          const b = chunk.bytes[i];
-          sess.viewBytes.push(b);
-          sess.rxByteFrameIds.push(fid);
-        }
-
-        if (curPkt) {
-          for (let i = offset; i < endOffset && curPkt.previewBytes.length < 256; i++) {
-            curPkt.previewBytes.push(chunk.bytes[i]);
-          }
-          curPkt.byteLength += take;
-          curPkt.lastPerfMs = chunk.perfMs + endOffset * msPerByte;
-        }
-
-        curFrame.length += take;
-        curFrame.prevRenderedLen = curFrame.length;
-        curFrame.lastPerfMs = chunk.perfMs + endOffset * msPerByte;
-
-        if (maxLen > 0 && curFrame.length >= maxLen) {
-          curFrame.closed = true;
-          if (curPkt) curPkt.closed = true;
-        }
-
-        incrementalUpdateRowsForFrame(sess, curFrame, prevLen);
-        offset = endOffset;
-      }
-      return;
-    }
-
-    // 3. Byte-exact segmentation when Hex Delimiter is active (+ optional MaxLen & Timeout)
-    const touchedFrames = [];
-    for (let i = 0; i < len; i++) {
-      const b = chunk.bytes[i];
-      let curFrame = sess.rxFrames.length > 0 ? sess.rxFrames[sess.rxFrames.length - 1] : null;
-      let curPkt = sess.packets.length > 0 ? sess.packets[sess.packets.length - 1] : null;
-
-      if (!curFrame || curFrame.closed || curFrame.dir !== "RX") {
-        const fid = sess.rxFrames.length;
-        const fTimeStr = getFrameTimeAtOffset(i);
-        curFrame = {
-          id: fid,
-          dir: "RX",
-          startIdx: sess.viewBytes.length,
-          length: 0,
-          prevRenderedLen: 0,
-          closed: false,
-          timeStr: fTimeStr,
-          lastPerfMs: chunk.perfMs + i * msPerByte,
-        };
-        sess.rxFrames.push(curFrame);
-
-        curPkt = {
-          time: fTimeStr,
-          dir: "RX",
-          previewBytes: [],
-          byteLength: 0,
-          lastPerfMs: chunk.perfMs + i * msPerByte,
-          closed: false,
-        };
-        sess.packets.push(curPkt);
-        sess.rxPktCount += 1;
-      }
-
-      if (touchedFrames[touchedFrames.length - 1] !== curFrame) {
-        touchedFrames.push(curFrame);
-      }
-
-      sess.viewBytes.push(b);
-      sess.rxByteFrameIds.push(curFrame.id);
-      curFrame.length += 1;
-      curFrame.lastPerfMs = chunk.perfMs;
-      if (curPkt) {
-        if (curPkt.previewBytes.length < 256) {
-          curPkt.previewBytes.push(b);
-        }
-        curPkt.byteLength += 1;
-        curPkt.lastPerfMs = chunk.perfMs;
-      }
-
-      // Check Max Frame Length condition
-      if (maxLen > 0 && curFrame.length >= maxLen) {
-        curFrame.closed = true;
-        if (curPkt) curPkt.closed = true;
-      } else if (delimLen > 0 && curFrame.length >= delimLen) {
-        // Check Hex Delimiter suffix match
-        let matched = true;
-        const baseIdx = sess.viewBytes.length - delimLen;
-        for (let k = 0; k < delimLen; k++) {
-          if (sess.viewBytes[baseIdx + k] !== delimBytes[k]) {
-            matched = false;
-            break;
-          }
-        }
-        if (matched) {
-          curFrame.closed = true;
-          if (curPkt) curPkt.closed = true;
-        }
-      }
-    }
-
-    for (let f = 0; f < touchedFrames.length; f++) {
-      const frame = touchedFrames[f];
-      incrementalUpdateRowsForFrame(sess, frame, frame.prevRenderedLen || 0);
-      frame.prevRenderedLen = frame.length;
-    }
-  }
-
+  // ==================== INCREMENTAL O(1) FRAME & ROW ENGINE (from js/framer.js) ====================
   // Full recalculation ONLY when user changes settings (timeout / layout / TX toggle)
   function recalculateFramesForSession(sess) {
     if (!sess) return;
-    sess.viewBytes = [];
-    sess.rxByteFrameIds = [];
-    sess.rxFrames = [];
-    sess.rowSlices = [];
-    sess.packets = [];
-    sess.rxPktCount = 0;
-    sess.maxCols = sess.frameLayout === "continuous_32" ? 32 : 16;
-
-    for (let i = 0; i < sess.rxRawChunks.length; i++) {
-      appendChunkIncremental(sess, sess.rxRawChunks[i]);
-    }
-    rebuildRowSlicesForSession(sess);
+    recalculateFramesState(sess);
 
     if (sess.id === activeSessionId) {
-      el.rxFrameCount.textContent = `${sess.rxFrames.length} 幀`;
+      el.rxFrameCount.textContent = t("status.frameCount", { count: sess.rxFrames.length });
       updateCountersUi(sess);
     }
   }
@@ -1788,7 +1241,7 @@
       vTopSpacer = null;
       vRowsHost = null;
       vBottomSpacer = null;
-      el.rxHexGrid.innerHTML = `<div class="empty-placeholder">此分頁（${formatSessionTabTitle(sess)}）尚無收發數據。開啟串口並傳送數據後，此處將即時顯示時間戳記、十六進位與 ASCII 並排資料。</div>`;
+      el.rxHexGrid.innerHTML = `<div class="empty-placeholder">${t("empty.hexGrid", { title: formatSessionTabTitle(sess) })}</div>`;
       return;
     }
 
@@ -1879,7 +1332,7 @@
 
   function renderTextViewWindowed(sess, scrollToBottom) {
     if (sess.rxFrames.length === 0) {
-      el.rxTextView.textContent = "（此分頁尚無收發數據）";
+      el.rxTextView.textContent = t("empty.textView");
       return;
     }
     if (sess.showTimestamp) {
@@ -1910,7 +1363,7 @@
 
   function renderPacketTimelineWindowed(sess, scrollToBottom) {
     if (sess.packets.length === 0) {
-      el.rxPacketView.innerHTML = `<div class="empty-placeholder">此分頁尚無收發封包紀錄。</div>`;
+      el.rxPacketView.innerHTML = `<div class="empty-placeholder">${t("empty.packetView")}</div>`;
       return;
     }
     const maxPkts = 200;
@@ -1957,7 +1410,7 @@
     if (!el.fixedTableBody) return;
     if (!sess.fixedMap || sess.fixedMap.size === 0) {
       el.fixedTableBody._rowMap = null;
-      el.fixedTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 28px; color:#94a3b8; font-size: 13px;">此分頁尚無接收數據。<br><span style="font-size: 11px; opacity: 0.8;">（固定行模式將依 CAN ID 或幀識別碼原地覆蓋更新最新數據、計數與週期時間）</span></td></tr>`;
+      el.fixedTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 28px; color:#94a3b8; font-size: 13px;">${t("empty.fixedTable")}</td></tr>`;
       return;
     }
 
@@ -2205,7 +1658,7 @@
     isSyncingTx = true;
     el.txHexInput.value = sess.txHexText;
     el.txAsciiInput.value = sess.txAsciiText;
-    el.txHexStatus.textContent = `格式正常 (${sess.txBytes.length} Bytes)`;
+    el.txHexStatus.textContent = t("tx.hexOkBytes", { count: sess.txBytes.length });
     el.txHexStatus.classList.remove("error");
     updateTxGutterAndPill(sess);
     isSyncingTx = false;
@@ -2216,7 +1669,7 @@
       txHexGridMode = !txHexGridMode;
       el.txHexGridWrap.classList.toggle("hidden", !txHexGridMode);
       el.txHexWrap.classList.toggle("hidden", txHexGridMode);
-      el.btnTxHexView.textContent = txHexGridMode ? "文字模式" : "拆格模式";
+      el.btnTxHexView.textContent = txHexGridMode ? t("tx.hexViewText") : t("tx.hexViewGrid");
       const sess = getActiveSession();
       if (txHexGridMode && sess) {
         renderTxHexGrid(sess);
@@ -2281,7 +1734,7 @@
         renderTxHexGrid(sess);
         focusTxHexCell(idx + 1);
       } else if (clean.length === 1) {
-        el.txHexStatus.textContent = "輸入中...";
+        el.txHexStatus.textContent = t("tx.hexTyping");
       }
     });
 
@@ -2366,7 +1819,7 @@
   function updateTxGutterAndPill(sess) {
     if (!sess || sess.id !== activeSessionId) return;
     const len = sess.txBytes.length;
-    el.txLengthPill.textContent = `長度: ${len} Bytes`;
+    el.txLengthPill.textContent = t("status.txLen", { count: len });
 
     const rowCount = Math.max(1, Math.min(500, Math.ceil(len / 16)));
     const offsets = [];
@@ -2391,10 +1844,10 @@
     el.txAsciiInput.value = sess.txAsciiText;
 
     if (hasOddNibble) {
-      el.txHexStatus.textContent = "提示：尚有未湊滿 2 位數的半位元組";
+      el.txHexStatus.textContent = t("tx.hexOddNibble");
       el.txHexStatus.classList.add("error");
     } else {
-      el.txHexStatus.textContent = `格式正常 (${bytes.length} Bytes)`;
+      el.txHexStatus.textContent = t("tx.hexOkBytes", { count: bytes.length });
       el.txHexStatus.classList.remove("error");
     }
     updateTxGutterAndPill(sess);
@@ -2448,7 +1901,7 @@
       isSyncingTx = true;
       el.txHexInput.value = sess.txHexText;
       el.txAsciiInput.value = sess.txAsciiText;
-      el.txHexStatus.textContent = `格式正常 (${sess.txBytes.length} Bytes)`;
+      el.txHexStatus.textContent = t("tx.hexOkBytes", { count: sess.txBytes.length });
       el.txHexStatus.classList.remove("error");
       updateTxGutterAndPill(sess);
       renderTxHexGrid(sess);
@@ -2495,7 +1948,7 @@
         data: rtr ? [] : bytesToSend,
       };
     } else if (bytesToSend.length === 0) {
-      setSessionStatus(sess, "發送區為空，無數據可傳送");
+      setSessionStatus(sess, t("status.emptyTx"));
       return;
     }
 
@@ -2538,9 +1991,9 @@
       if (sess.id === activeSessionId) {
         scheduleActiveRender(true);
       }
-      setSessionStatus(sess, `已傳送 ${bytesToSend.length} Bytes 至 ${sess.portName}`);
+      setSessionStatus(sess, t("status.sentBytes", { count: bytesToSend.length, port: sess.portName }));
     } catch (err) {
-      setSessionStatus(sess, `傳送失敗: ${err}`);
+      setSessionStatus(sess, t("status.sendFailed", { err }));
     }
   }
 
@@ -2560,16 +2013,7 @@
   }
 
   // ==================== MULTI-SEND DATALIST (CHARLIST) ====================
-  function parseDataListRowPayload(row) {
-    if (row.format === "HEX") {
-      return parseHexInput(row.payload).bytes;
-    }
-    const unescaped = row.payload
-      .replace(/\\r/g, "\r")
-      .replace(/\\n/g, "\n")
-      .replace(/\\t/g, "\t");
-    return utf8TextToBytes(unescaped);
-  }
+  // parseDataListRowPayload imported from js/excommand.js
 
   async function sendNextDataListItemForSession(sess) {
     const enabledRows = sess.datalist.filter((r) => r.enabled && r.payload.trim().length > 0);
@@ -2614,8 +2058,8 @@
           <input type="text" class="dl-payload" data-idx="${index}" value="${escapeHtmlAttr(row.payload)}" />
         </td>
         <td>
-          <button class="mini-btn dl-send" data-idx="${index}">傳送</button>
-          <button class="mini-btn dl-del" data-idx="${index}" title="刪除此列">✕</button>
+          <button class="mini-btn dl-send" data-idx="${index}">${t("datalist.sendBtn")}</button>
+          <button class="mini-btn dl-del" data-idx="${index}" title="${t("datalist.delTitle")}">✕</button>
         </td>
       `;
       el.datalistTbody.appendChild(tr);
@@ -3181,16 +2625,7 @@
   el.btnLoadScpiTemplate.addEventListener("click", () => {
     const sess = getActiveSession();
     if (!sess) return;
-    const scpiTemplates = [
-      { enabled: true, name: "查詢設備型號 (IDN)", format: "ASCII", payload: "*IDN?\\r\\n" },
-      { enabled: true, name: "清除錯誤暫存器 (CLS)", format: "ASCII", payload: "*CLS\\r\\n" },
-      { enabled: true, name: "查詢系統錯誤 (ERR)", format: "ASCII", payload: ":SYST:ERR?\\r\\n" },
-      { enabled: true, name: "量測即時電壓 (Volt)", format: "ASCII", payload: ":MEAS:VOLT?\\r\\n" },
-      { enabled: true, name: "量測即時電流 (Curr)", format: "ASCII", payload: ":MEAS:CURR?\\r\\n" },
-      { enabled: false, name: "量測即時功率 (Power)", format: "ASCII", payload: ":MEAS:POW?\\r\\n" },
-      { enabled: false, name: "查詢輸出狀態 (Output)", format: "ASCII", payload: ":OUTP?\\r\\n" },
-      { enabled: false, name: "設備復位 (Reset)", format: "ASCII", payload: "*RST\\r\\n" },
-    ];
+    const scpiTemplates = DEFAULT_SCPI_TEMPLATES.map((t) => ({ ...t }));
 
     if (sess.datalist && sess.datalist.length > 0) {
       const confirmReplace = confirm("是否載入標準 SCPI 儀器指令範本？\n\n點擊「確定」將替換為 SCPI 標準範本；\n點擊「取消」則將 SCPI 範本追加至清單後方。");
@@ -3206,74 +2641,6 @@
     renderDataList(sess);
     setSessionStatus(sess, `已載入常用 SCPI 儀器指令範本至快捷發送列表`);
   });
-
-  function parseExCommandIni(text) {
-    const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-    const rows = [];
-    for (let i = 0; i < lines.length; i++) {
-      const rawLine = lines[i];
-      const trimmed = rawLine.trim();
-      if (!trimmed) continue;
-      if (i === 0 && trimmed === "Serial Assistant ExCommand") continue;
-
-      const firstComma = rawLine.indexOf(",");
-      if (firstComma === -1) continue;
-      const secondComma = rawLine.indexOf(",", firstComma + 1);
-      if (secondComma === -1) continue;
-
-      const isHex = rawLine.slice(0, firstComma).trim().toLowerCase() === "true";
-      const addNewline = rawLine.slice(firstComma + 1, secondComma).trim().toLowerCase() === "true";
-      const rest = rawLine.slice(secondComma + 1);
-
-      const notesMarker = "((:Notes:))";
-      const notesIdx = rest.indexOf(notesMarker);
-      let payload = notesIdx >= 0 ? rest.slice(0, notesIdx) : rest;
-      const note = notesIdx >= 0 ? rest.slice(notesIdx + notesMarker.length).trim() : "";
-
-      // Skip completely empty placeholder rows (e.g. "False,False,")
-      if (payload.trim().length === 0 && note.length === 0) continue;
-
-      const format = isHex ? "HEX" : "ASCII";
-      if (format === "HEX") {
-        payload = payload.trim();
-        if (addNewline && payload.length > 0 && !/0d\s+0a$/i.test(payload)) {
-          payload = `${payload} 0D 0A`;
-        }
-      } else {
-        if (addNewline && payload.length > 0 && !payload.endsWith("\\r\\n") && !payload.endsWith("\\n")) {
-          payload = `${payload}\\r\\n`;
-        }
-      }
-
-      rows.push({
-        enabled: payload.trim().length > 0,
-        name: note,
-        format,
-        payload,
-      });
-    }
-    return rows;
-  }
-
-  function serializeExCommandIni(rows) {
-    const lines = ["Serial Assistant ExCommand"];
-    for (const row of rows || []) {
-      const isHex = row.format === "HEX";
-      let payload = row.payload ?? "";
-      let addNewline = false;
-
-      if (isHex) {
-        payload = payload.trim();
-      } else if (payload.endsWith("\\r\\n")) {
-        addNewline = true;
-        payload = payload.slice(0, -4);
-      }
-
-      const notePart = row.name && row.name.trim().length > 0 ? `((:Notes:))${row.name.trim()}` : "";
-      lines.push(`${isHex ? "True" : "False"},${addNewline ? "True" : "False"},${payload}${notePart}`);
-    }
-    return lines.join("\r\n") + "\r\n";
-  }
 
   el.btnImportDatalist.addEventListener("click", () => {
     const sess = getActiveSession();
@@ -3326,72 +2693,21 @@
 
   function exportRxLogWithTimestamp(sess) {
     if (!sess) return;
-    const hasFixed = sess.fixedMap && sess.fixedMap.size > 0;
-    const hasFrames = sess.rxFrames && sess.rxFrames.length > 0;
-    const hasPackets = sess.packets && sess.packets.length > 0;
-    if (!hasFixed && !hasFrames && !hasPackets) {
+    const exported = buildRxLogExport(sess, getConnSummary(sess));
+    if (!exported) {
       setSessionStatus(sess, "目前接收區無數據可儲存");
       return;
     }
 
-    const lines = [];
-    if (sess.rxMode === "fixed" && hasFixed) {
-      lines.push(`# PortAssist Fixed Table - ${getConnSummary(sess)} - Exported at ${new Date().toLocaleString()}`);
-      lines.push("# ID         | Type | DLC | Data (Hex)               | ASCII    | Count | Cycle (ms) | Time");
-      lines.push("");
-      const sorted = Array.from(sess.fixedMap.values()).sort((a, b) => (a.rawId ?? 0) - (b.rawId ?? 0));
-      for (const item of sorted) {
-        const hexStr = bytesToHexString(item.data, false);
-        const asciiStr = item.data.map(toPrintableAscii).join("");
-        const cycStr = item.cycleMs > 0 ? item.cycleMs.toFixed(1) : "-";
-        lines.push(
-          `${item.idStr.padEnd(10)} | ${item.typeStr.padEnd(4)} | ${String(item.dlc).padEnd(3)} | ${hexStr.padEnd(24)} | ${asciiStr.padEnd(8)} | ${String(item.count).padStart(5)} | ${cycStr.padStart(10)} | ${item.timeStr}`
-        );
-      }
-    } else {
-      lines.push(`# PortAssist Log - ${getConnSummary(sess)} - Exported at ${new Date().toLocaleString()}`);
-      lines.push("# Format: [Time] [Dir] (Length) Hex | ASCII");
-      lines.push("");
-
-      if (hasFrames) {
-        for (let i = 0; i < sess.rxFrames.length; i++) {
-          const f = sess.rxFrames[i];
-          const slice = sess.viewBytes.slice(f.startIdx, f.startIdx + f.length);
-          const hexStr = bytesToHexString(slice, false);
-          const asciiStr = slice.map(toPrintableAscii).join("");
-          const dirTag = (f.dir || "RX").padEnd(2, " ");
-          const lenStr = String(f.length).padStart(3, " ");
-          const pktMeta = sess.packets[i] && sess.packets[i].canMeta ? `[${sess.packets[i].canMeta}] ` : "";
-          lines.push(`[${f.timeStr}] [${dirTag}] (${lenStr} B) ${pktMeta}${hexStr}  | ${asciiStr}`);
-        }
-      } else {
-        for (let i = 0; i < sess.packets.length; i++) {
-          const p = sess.packets[i];
-          const bytes = p.previewBytes || [];
-          const hexStr = bytesToHexString(bytes, false);
-          const asciiStr = bytes.map(toPrintableAscii).join("");
-          const dirTag = (p.dir || "RX").padEnd(2, " ");
-          const lenStr = String(p.byteLength ?? bytes.length).padStart(3, " ");
-          const canTag = p.canMeta ? `[${p.canMeta}] ` : "";
-          lines.push(`[${p.time}] [${dirTag}] (${lenStr} B) ${canTag}${hexStr}  | ${asciiStr}`);
-        }
-      }
-    }
-
-    const now = new Date();
-    const pad2 = (n) => String(n).padStart(2, "0");
-    const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
-    const safeName = getConnSummary(sess).replace(/[^a-zA-Z0-9_-]/g, "_");
-    const fileName = `accessport_${safeName}_${stamp}.txt`;
-
-    const blob = new Blob([lines.join("\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([exported.content + "\r\n"], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = fileName;
+    a.download = exported.fileName;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setSessionStatus(sess, `已儲存接收日誌 "${fileName}" (${hasFrames ? sess.rxFrames.length : sess.packets.length} 筆)`);
+    const count = sess.rxFrames && sess.rxFrames.length > 0 ? sess.rxFrames.length : sess.packets.length;
+    setSessionStatus(sess, `已儲存接收日誌 "${exported.fileName}" (${count} 筆)`);
   }
 
   if (el.btnSaveRxLog) {
@@ -3541,80 +2857,7 @@
     const sess = getSessionById(sessionId);
     if (!sess || !frames || frames.length === 0) return;
 
-    const nowWallStr = formatTimestamp();
-    const prevLatestFrame = sess.rxFrames.length > 0 ? sess.rxFrames[sess.rxFrames.length - 1] : null;
-    const wasLatestClosed = prevLatestFrame ? Boolean(prevLatestFrame.closed) : true;
-    const prevLatestRowCount = sess.rowSlices.length;
-
-    for (let i = 0; i < frames.length; i++) {
-      const f = frames[i];
-      const dataBytes = Array.isArray(f.data) ? f.data : [];
-      const idHex = f.extended
-        ? f.id.toString(16).toUpperCase().padStart(8, "0")
-        : f.id.toString(16).toUpperCase().padStart(3, "0");
-      const kindTag = f.rtr ? "RTR" : f.extended ? "Ext" : "Std";
-
-      const chunk = {
-        perfMs: f.perfMs ?? batchNowMs,
-        timeStr: nowWallStr,
-        dir: "RX",
-        bytes: dataBytes,
-        canMeta: `ID:0x${idHex} ${kindTag} DLC:${f.dlc}`,
-      };
-      if (dataBytes.length > 0) {
-        sess.rxRawChunks.push(chunk);
-        appendChunkIncremental(sess, chunk);
-        if (sess.rxFrames.length > 0) {
-          sess.rxFrames[sess.rxFrames.length - 1].closed = true;
-        }
-      } else {
-        sess.rxPktCount += 1;
-        sess.packets.push({
-          time: nowWallStr,
-          dir: "RX",
-          previewBytes: [],
-          byteLength: 0,
-          lastPerfMs: chunk.perfMs,
-          closed: true,
-          canMeta: chunk.canMeta,
-        });
-      }
-      if (sess.packets.length > 0) {
-        sess.packets[sess.packets.length - 1].canMeta = chunk.canMeta;
-      }
-
-      // Maintain PCAN Fixed In-Place Map (PCAN-View Receive List)
-      if (!sess.fixedMap) sess.fixedMap = new Map();
-      const fixedKey = `${f.extended ? "E" : "S"}_${idHex}_${f.rtr ? "R" : "D"}`;
-      let fixedItem = sess.fixedMap.get(fixedKey);
-      const nowPerf = f.perfMs ?? batchNowMs;
-      if (!fixedItem) {
-        fixedItem = {
-          key: fixedKey,
-          idStr: `0x${idHex}`,
-          rawId: f.id,
-          extended: f.extended,
-          rtr: f.rtr,
-          typeStr: kindTag,
-          dlc: f.dlc,
-          data: [...dataBytes],
-          prevData: [],
-          count: 1,
-          lastPerfMs: nowPerf,
-          cycleMs: 0,
-          timeStr: nowWallStr,
-        };
-        sess.fixedMap.set(fixedKey, fixedItem);
-      } else {
-        fixedItem.count += 1;
-        fixedItem.cycleMs = Math.max(0, nowPerf - fixedItem.lastPerfMs);
-        fixedItem.lastPerfMs = nowPerf;
-        fixedItem.timeStr = nowWallStr;
-        fixedItem.dlc = f.dlc;
-        fixedItem.prevData = fixedItem.data;
-        fixedItem.data = [...dataBytes];
-      }
-    }
+    applyPcanBatchToSession(sess, batchNowMs, frames, formatTimestamp());
 
     if (sess.id === activeSessionId) {
       scheduleActiveRender(true);
@@ -3641,7 +2884,7 @@
     const isDark = theme === "dark";
     document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
     if (el.btnThemeToggle) {
-      el.btnThemeToggle.textContent = isDark ? "☀️ 明亮" : "🌙 深色";
+      el.btnThemeToggle.textContent = isDark ? t("theme.light") : t("theme.dark");
     }
     try {
       localStorage.setItem("accessport_theme", isDark ? "dark" : "light");
@@ -3660,6 +2903,55 @@
       applyTheme(current === "dark" ? "light" : "dark");
     });
   }
+
+  function toggleLanguage() {
+    setLang(getLang() === "en" ? "zh-Hant" : "en");
+    refreshLanguageUi(true);
+  }
+
+  function refreshLanguageUi(syncNativeMenu = false) {
+    applyI18nToDom(document);
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    if (el.btnThemeToggle) {
+      el.btnThemeToggle.textContent = isDark ? t("theme.light") : t("theme.dark");
+    }
+    if (el.btnTxHexView) {
+      el.btnTxHexView.textContent = txHexGridMode ? t("tx.hexViewText") : t("tx.hexViewGrid");
+    }
+    const sess = getActiveSession();
+    if (sess) {
+      updatePortToggleUi(sess);
+      updateRxPauseUi(sess);
+      renderSessionTabs();
+      updateTxGutterAndPill(sess);
+      if (el.netServerClientsPill) {
+        el.netServerClientsPill.textContent = t("status.netClients", { count: sess.tcpServerClients || 0 });
+      }
+      if (el.txHexStatus && !sess.txHasOddNibble) {
+        el.txHexStatus.textContent = t("tx.hexOkBytes", { count: sess.txBytes.length });
+      }
+      if (el.rxFrameCount) {
+        el.rxFrameCount.textContent = t("status.frameCount", { count: sess.rxFrames.length });
+      }
+      if (!sess.isOpen && el.statusMsg && (/就緒/.test(sess.statusText || "") || /Ready/.test(sess.statusText || ""))) {
+        sess.statusText = t("status.tabReady", { seq: sess.seq });
+        el.statusMsg.textContent = sess.statusText;
+      }
+      renderDataList(sess);
+      renderActiveSessionView(false);
+    }
+    if (syncNativeMenu || getLang() !== "zh-Hant") {
+      const invoke = getTauriInvoke();
+      if (invoke) {
+        invoke("set_app_language", { lang: getLang() }).catch(() => {});
+      }
+    }
+  }
+
+  if (el.menuToggleLang) {
+    el.menuToggleLang.addEventListener("click", toggleLanguage);
+  }
+  refreshLanguageUi(false);
 
   // ==================== FONT SIZE CUSTOMIZATION ====================
   function applyFontSize(sizePx) {
@@ -3793,6 +3085,36 @@
       const p = event && event.payload;
       if (p) handleMcpSessionClosed(p);
     });
+
+    await listen("native-menu-action", (event) => {
+      const action = event && event.payload;
+      const actionMap = {
+        "about": () => document.getElementById("menu-about")?.click(),
+        "new-session": () => document.getElementById("menu-new-session")?.click(),
+        "close-session": () => document.getElementById("menu-close-session")?.click(),
+        "load-tx": () => document.getElementById("menu-load-tx")?.click(),
+        "save-rx-bin": () => document.getElementById("menu-save-rx-bin")?.click(),
+        "save-rx-txt": () => document.getElementById("menu-save-rx-txt")?.click(),
+        "clear-all": () => document.getElementById("menu-clear-all")?.click(),
+        "rx-mode-dual": () => document.querySelector('[data-rx-mode="dual"]')?.click(),
+        "rx-mode-hex": () => document.querySelector('[data-rx-mode="hex"]')?.click(),
+        "rx-mode-text": () => document.querySelector('[data-rx-mode="text"]')?.click(),
+        "rx-mode-packets": () => document.querySelector('[data-rx-mode="packets"]')?.click(),
+        "rx-mode-fixed": () => document.querySelector('[data-rx-mode="fixed"]')?.click(),
+        "toggle-packets": () => document.getElementById("menu-toggle-packets")?.click(),
+        "font-12": () => document.querySelector('[data-font-size="12"]')?.click(),
+        "font-14": () => document.querySelector('[data-font-size="14"]')?.click(),
+        "font-16": () => document.querySelector('[data-font-size="16"]')?.click(),
+        "toggle-theme": () => document.getElementById("btn-theme-toggle")?.click(),
+        "toggle-lang": () => toggleLanguage(),
+        "toggle-port": () => document.getElementById("menu-toggle-port")?.click(),
+        "send-now": () => document.getElementById("menu-send-now")?.click(),
+        "reset-counters": () => document.getElementById("menu-reset-counters")?.click(),
+      };
+      if (action && actionMap[action]) {
+        actionMap[action]();
+      }
+    });
   }
 
   function recordExternalTx(sessionId, bytes) {
@@ -3877,68 +3199,7 @@
   }
 
   // ==================== DETACH TAB TO NEW WINDOW ====================
-  function serializeSessionForDetach(sess) {
-    return JSON.stringify({
-      id: sess.id,
-      seq: sess.seq,
-      customTitle: sess.customTitle,
-      isOpen: sess.isOpen,
-      connType: sess.connType,
-      portName: sess.portName,
-      baudRate: sess.baudRate,
-      parity: sess.parity,
-      dataBits: sess.dataBits,
-      stopBits: sess.stopBits,
-      flowControl: sess.flowControl,
-      tcpClientHost: sess.tcpClientHost,
-      tcpClientPort: sess.tcpClientPort,
-      tcpServerHost: sess.tcpServerHost,
-      tcpServerPort: sess.tcpServerPort,
-      tcpServerClients: sess.tcpServerClients,
-      udpLocalPort: sess.udpLocalPort,
-      udpHost: sess.udpHost,
-      udpPort: sess.udpPort,
-      pcanChannel: sess.pcanChannel,
-      pcanBaud: sess.pcanBaud,
-      canTxId: sess.canTxId,
-      canTxType: sess.canTxType,
-      rxMode: sess.rxMode,
-      txTab: sess.txTab,
-      rxBytes: sess.rxBytes,
-      viewBytes: sess.viewBytes,
-      rxRawChunks: sess.rxRawChunks,
-      rxByteFrameIds: sess.rxByteFrameIds,
-      rxFrames: sess.rxFrames.map((f) => ({ ...f })),
-      frameBreakEnabled: sess.frameBreakEnabled,
-      frameRule: sess.frameRule,
-      frameTimeoutMs: sess.frameTimeoutMs,
-      frameMaxLen: sess.frameMaxLen,
-      frameDelimHex: sess.frameDelimHex,
-      frameLayout: sess.frameLayout,
-      showTimestamp: sess.showTimestamp,
-      showTxInline: sess.showTxInline,
-      rxPaused: sess.rxPaused,
-      txBytes: sess.txBytes,
-      txHexText: sess.txHexText,
-      txAsciiText: sess.txAsciiText,
-      txCrlf: sess.txCrlf,
-      packets: sess.packets,
-      rxPktCount: sess.rxPktCount,
-      txByteCount: sess.txByteCount,
-      txPktCount: sess.txPktCount,
-      datalist: sess.datalist,
-      datalistCursor: sess.datalistCursor,
-      dtr: sess.dtr,
-      rts: sess.rts,
-      cts: sess.cts,
-      dsr: sess.dsr,
-      cd: sess.cd,
-      ri: sess.ri,
-      statusText: sess.statusText,
-      autoSendInterval: sess.autoSendInterval,
-      autoSendMaxCount: sess.autoSendMaxCount,
-    });
-  }
+  // serializeSessionForDetach imported from js/session-model.js
 
   async function detachSessionToWindow(sess, screenX, screenY) {
     if (!sess || sessions.length <= 1) return;

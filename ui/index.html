@@ -18,47 +18,49 @@
       </div>
       <div class="menubar">
         <div class="menu-item" data-menu="file">
-          <span>檔案(F)</span>
+          <span data-i18n="menu.file">檔案(F)</span>
           <div class="menu-dropdown">
-            <button id="menu-new-session">新增串口分頁 (Ctrl+T)</button>
-            <button id="menu-close-session">關閉目前分頁 (Ctrl+W)</button>
+            <button id="menu-new-session" data-i18n="menu.file.new">新增串口分頁 (Ctrl+T)</button>
+            <button id="menu-close-session" data-i18n="menu.file.close">關閉目前分頁 (Ctrl+W)</button>
             <div class="menu-sep"></div>
-            <button id="menu-load-tx">載入檔案至發送區...</button>
-            <button id="menu-save-rx-bin">匯出接收數據 (Binary/.bin)...</button>
-            <button id="menu-save-rx-txt">匯出接收十六進位報表 (.txt)...</button>
+            <button id="menu-load-tx" data-i18n="menu.file.loadTx">載入檔案至發送區...</button>
+            <button id="menu-save-rx-bin" data-i18n="menu.file.saveBin">匯出接收數據 (Binary/.bin)...</button>
+            <button id="menu-save-rx-txt" data-i18n="menu.file.saveTxt">匯出接收十六進位報表 (.txt)...</button>
             <div class="menu-sep"></div>
-            <button id="menu-clear-all">全部清空 (RX &amp; TX)</button>
+            <button id="menu-clear-all" data-i18n="menu.file.clearAll">全部清空 (RX &amp; TX)</button>
           </div>
         </div>
         <div class="menu-item" data-menu="view">
-          <span>檢視(V)</span>
+          <span data-i18n="menu.view">檢視(V)</span>
           <div class="menu-dropdown">
-            <button data-rx-mode="dual">接收區：Hex + ASCII 並排 (經典)</button>
-            <button data-rx-mode="hex">接收區：僅十六進位 (Hex)</button>
-            <button data-rx-mode="text">接收區：純文字模式 (ASCII/UTF-8)</button>
-            <button data-rx-mode="packets">接收區：分包日誌 (滾動模式)</button>
-            <button data-rx-mode="fixed">接收區：固定行模式 (PCAN-View 覆蓋)</button>
+            <button data-rx-mode="dual" data-i18n="menu.view.dual">接收區：Hex + ASCII 並排 (經典)</button>
+            <button data-rx-mode="hex" data-i18n="menu.view.hex">接收區：僅十六進位 (Hex)</button>
+            <button data-rx-mode="text" data-i18n="menu.view.text">接收區：純文字模式 (ASCII/UTF-8)</button>
+            <button data-rx-mode="packets" data-i18n="menu.view.packets">接收區：分包日誌 (滾動模式)</button>
+            <button data-rx-mode="fixed" data-i18n="menu.view.fixed">接收區：固定行模式 (PCAN-View 覆蓋)</button>
             <div class="menu-sep"></div>
-            <button id="menu-toggle-packets">切換日誌 / 經典檢視</button>
+            <button id="menu-toggle-packets" data-i18n="menu.view.togglePackets">切換日誌 / 經典檢視</button>
             <div class="menu-sep"></div>
-            <button data-font-size="12" class="menu-font-btn">字體大小：小 (12px)</button>
-            <button data-font-size="14" class="menu-font-btn">字體大小：中 (14px)</button>
-            <button data-font-size="16" class="menu-font-btn">字體大小：大 (16px)</button>
+            <button data-font-size="12" class="menu-font-btn" data-i18n="menu.view.fontSmall">字體大小：小 (12px)</button>
+            <button data-font-size="14" class="menu-font-btn" data-i18n="menu.view.fontMedium">字體大小：中 (14px)</button>
+            <button data-font-size="16" class="menu-font-btn" data-i18n="menu.view.fontLarge">字體大小：大 (16px)</button>
+            <div class="menu-sep"></div>
+            <button id="menu-toggle-lang" data-i18n="menu.view.toggleLang">切換語言：English / 繁體中文</button>
           </div>
         </div>
         <div class="menu-item" data-menu="op">
-          <span>操作(O)</span>
+          <span data-i18n="menu.op">操作(O)</span>
           <div class="menu-dropdown">
-            <button id="menu-toggle-port">開啟 / 關閉串口 (F2)</button>
-            <button id="menu-send-now">立即傳送數據 (F5)</button>
+            <button id="menu-toggle-port" data-i18n="menu.op.togglePort">開啟 / 關閉串口 (F2)</button>
+            <button id="menu-send-now" data-i18n="menu.op.sendNow">立即傳送數據 (F5)</button>
             <div class="menu-sep"></div>
-            <button id="menu-reset-counters">重置 RX/TX 計數器</button>
+            <button id="menu-reset-counters" data-i18n="menu.op.resetCounters">重置 RX/TX 計數器</button>
           </div>
         </div>
         <div class="menu-item" data-menu="help">
-          <span>說明(H)</span>
+          <span data-i18n="menu.help">說明(H)</span>
           <div class="menu-dropdown">
-            <button id="menu-about">關於 PortAssist</button>
+            <button id="menu-about" data-i18n="menu.help.about">關於 PortAssist</button>
           </div>
         </div>
       </div>
@@ -75,7 +77,7 @@
 
     <!-- Right: Theme Toggle, Connection Summary & Window Control Buttons -->
     <div class="titlebar-right">
-      <button id="btn-theme-toggle" class="theme-toggle-btn" title="切換深色 / 明亮模式">🌙 深色</button>
+      <button id="btn-theme-toggle" class="theme-toggle-btn" data-i18n-title="theme.toggle.title" title="切換深色 / 明亮模式">🌙 深色</button>
       <span class="session-summary" id="session-summary" title="目前已開啟串口連線數 / 總分頁數">0/1 連線</span>
       <div class="win-controls">
         <button id="btn-win-min" class="win-btn" title="最小化">
@@ -95,13 +97,13 @@
   <div class="app-body">
   <!-- Left Settings Sidebar -->
   <section class="toolbar" id="left-sidebar">
-    <div class="sidebar-section-title">通訊連線設定</div>
+    <div class="sidebar-section-title" data-i18n="sidebar.connTitle">通訊連線設定</div>
 
     <!-- Communication Protocol Type Selector -->
     <div class="param-group conn-type-group">
-      <label for="sel-conn-type">協議</label>
+      <label for="sel-conn-type" data-i18n="sidebar.protocol">協議</label>
       <select id="sel-conn-type" title="選擇連線模式：串口 COM / TCP 客戶端 / TCP 伺服器 / UDP / PCAN">
-        <option value="serial" selected>串口 (COM)</option>
+        <option value="serial" selected>Serial (COM)</option>
         <option value="tcp_client">TCP Client</option>
         <option value="tcp_server">TCP Server</option>
         <option value="udp">UDP</option>
@@ -114,7 +116,7 @@
     <!-- Serial Port Parameters Container -->
     <div class="params-serial" id="params-serial">
       <div class="param-group">
-        <label for="sel-port">串口</label>
+        <label for="sel-port" data-i18n="sidebar.serialPort">串口</label>
         <div class="port-select-wrap">
           <select id="sel-port" title="選擇 COM Port"></select>
           <button id="btn-refresh-ports" class="icon-btn" title="重新掃描串口">↻</button>
@@ -122,7 +124,7 @@
       </div>
 
       <div class="param-group">
-        <label for="inp-baud">波特率</label>
+        <label for="inp-baud" data-i18n="sidebar.baudRate">波特率</label>
         <div class="baud-combo" id="baud-combo">
           <input
             type="number"
@@ -163,7 +165,7 @@
       </div>
 
       <div class="param-group">
-        <label for="sel-parity">校驗位</label>
+        <label for="sel-parity" data-i18n="sidebar.parity">校驗位</label>
         <select id="sel-parity">
           <option value="None" selected>None</option>
           <option value="Odd">Odd</option>
@@ -172,7 +174,7 @@
       </div>
 
       <div class="param-group">
-        <label for="sel-databits">數據位</label>
+        <label for="sel-databits" data-i18n="sidebar.dataBits">數據位</label>
         <select id="sel-databits">
           <option value="8" selected>8</option>
           <option value="7">7</option>
@@ -182,7 +184,7 @@
       </div>
 
       <div class="param-group">
-        <label for="sel-stopbits">停止位</label>
+        <label for="sel-stopbits" data-i18n="sidebar.stopBits">停止位</label>
         <select id="sel-stopbits">
           <option value="1" selected>1</option>
           <option value="2">2</option>
@@ -190,7 +192,7 @@
       </div>
 
       <div class="param-group">
-        <label for="sel-flow">流控</label>
+        <label for="sel-flow" data-i18n="sidebar.flowControl">流控</label>
         <select id="sel-flow">
           <option value="None" selected>None</option>
           <option value="Software">XON/XOFF</option>
@@ -204,11 +206,11 @@
       <!-- TCP Client Fields -->
       <div class="net-row" id="net-fields-tcp-client">
         <div class="param-group">
-          <label for="inp-tcp-client-host">目標 IP/主機</label>
+          <label for="inp-tcp-client-host" data-i18n="sidebar.remoteHost">目標 IP/主機</label>
           <input type="text" id="inp-tcp-client-host" value="127.0.0.1" placeholder="127.0.0.1" style="width: 110px;" />
         </div>
         <div class="param-group">
-          <label for="inp-tcp-client-port">目標 Port</label>
+          <label for="inp-tcp-client-port" data-i18n="sidebar.remotePort">目標 Port</label>
           <input type="number" id="inp-tcp-client-port" value="8080" min="1" max="65535" style="width: 68px;" />
         </div>
       </div>
@@ -216,11 +218,11 @@
       <!-- TCP Server Fields -->
       <div class="net-row hidden" id="net-fields-tcp-server">
         <div class="param-group">
-          <label for="inp-tcp-server-port">監聽 Port</label>
+          <label for="inp-tcp-server-port" data-i18n="sidebar.listenPort">監聽 Port</label>
           <input type="number" id="inp-tcp-server-port" value="8080" min="1" max="65535" style="width: 68px;" />
         </div>
         <div class="param-group">
-          <label for="inp-tcp-server-host">監聽 IP</label>
+          <label for="inp-tcp-server-host" data-i18n="sidebar.listenIp">監聽 IP</label>
           <input type="text" id="inp-tcp-server-host" value="0.0.0.0" placeholder="0.0.0.0" style="width: 85px;" />
         </div>
         <span class="byte-pill" id="net-server-clients-pill" title="目前已連入的 TCP 客戶端數量">0 客戶端</span>
@@ -229,15 +231,15 @@
       <!-- UDP Fields -->
       <div class="net-row hidden" id="net-fields-udp">
         <div class="param-group">
-          <label for="inp-udp-local-port" title="本地監聽 Port (輸入 0 由系統隨機指派)">本地 Port</label>
-          <input type="number" id="inp-udp-local-port" value="8081" min="0" max="65535" placeholder="0 自動" style="width: 68px;" />
+          <label for="inp-udp-local-port" data-i18n="sidebar.localPort" title="本地監聽 Port (輸入 0 由系統隨機指派)">本地 Port</label>
+          <input type="number" id="inp-udp-local-port" value="8081" min="0" max="65535" placeholder="0" style="width: 68px;" />
         </div>
         <div class="param-group">
-          <label for="inp-udp-host">目標 IP</label>
+          <label for="inp-udp-host" data-i18n="sidebar.targetIp">目標 IP</label>
           <input type="text" id="inp-udp-host" value="127.0.0.1" placeholder="127.0.0.1" style="width: 100px;" />
         </div>
         <div class="param-group">
-          <label for="inp-udp-port">目標 Port</label>
+          <label for="inp-udp-port" data-i18n="sidebar.remotePort">目標 Port</label>
           <input type="number" id="inp-udp-port" value="8080" min="1" max="65535" style="width: 68px;" />
         </div>
       </div>
@@ -246,7 +248,7 @@
     <!-- PCAN Parameters Container (Classic CAN 2.0A/B) -->
     <div class="params-net hidden" id="params-pcan">
       <div class="param-group">
-        <label for="sel-pcan-channel">PCAN 通道</label>
+        <label for="sel-pcan-channel" data-i18n="sidebar.pcanChannel">PCAN 通道</label>
         <div class="port-select-wrap">
           <select id="sel-pcan-channel" title="選擇 PEAK PCAN-USB 通道">
             <option value="PCAN_USBBUS1" selected>PCAN_USBBUS1</option>
@@ -262,7 +264,7 @@
         </div>
       </div>
       <div class="param-group">
-        <label for="sel-pcan-baud">CAN 波特率</label>
+        <label for="sel-pcan-baud" data-i18n="sidebar.canBaud">CAN 波特率</label>
         <select id="sel-pcan-baud" title="選擇 Classic CAN 2.0 波特率">
           <option value="1000000">1000 kbps (1M)</option>
           <option value="800000">800 kbps</option>
@@ -282,24 +284,24 @@
     <!-- Port Open/Close Toggle -->
     <button id="btn-port-toggle" class="tool-btn primary-toggle" title="開啟/關閉連線 (F2)">
       <span class="led" id="port-led"></span>
-      <span id="port-toggle-label">開啟串口</span>
+      <span id="port-toggle-label" data-i18n="sidebar.openConn">開啟串口</span>
     </button>
 
     <!-- PCAN TX Frame Settings (Shown only in PCAN mode) -->
     <div class="tx-can-bar hidden" id="tx-can-bar">
       <div class="toolbar-divider"></div>
-      <div class="sidebar-section-title">CAN 發送設定</div>
+      <div class="sidebar-section-title" data-i18n="can.txTitle">CAN 發送設定</div>
       <div class="param-group">
         <label for="inp-can-tx-id">CAN ID</label>
         <input type="text" id="inp-can-tx-id" value="7DF" maxlength="8" placeholder="7DF" title="輸入 Hex CAN ID（標準幀 0~7FF，擴展幀 0~1FFFFFFF）" />
       </div>
       <div class="param-group">
-        <label for="sel-can-tx-type">幀類型</label>
+        <label for="sel-can-tx-type" data-i18n="can.txType">幀類型</label>
         <select id="sel-can-tx-type" title="選擇 CAN 幀類型">
-          <option value="std" selected>標準幀 (11-bit)</option>
-          <option value="ext">擴展幀 (29-bit)</option>
-          <option value="rtr_std">遠端幀 RTR (11-bit)</option>
-          <option value="rtr_ext">遠端幀 RTR (29-bit)</option>
+          <option value="std" selected data-i18n="can.typeStd">標準幀 (11-bit)</option>
+          <option value="ext" data-i18n="can.typeExt">擴展幀 (29-bit)</option>
+          <option value="rtr_std" data-i18n="can.typeRtrStd">遠端幀 RTR (11-bit)</option>
+          <option value="rtr_ext" data-i18n="can.typeRtrExt">遠端幀 RTR (29-bit)</option>
         </select>
       </div>
     </div>
@@ -307,40 +309,40 @@
     <div class="toolbar-divider"></div>
 
     <!-- Receive Display & Frame Segmentation Settings -->
-    <div class="sidebar-section-title">接收設定</div>
+    <div class="sidebar-section-title" data-i18n="rx.settingsTitle">接收設定</div>
     <div class="sidebar-rx-settings">
       <div class="sidebar-check-row">
         <label class="checkbox-label" title="啟用或停用自動斷幀">
           <input type="checkbox" id="chk-frame-break" checked />
-          <span>自動斷幀</span>
+          <span data-i18n="rx.frameBreak">自動斷幀</span>
         </label>
         <label class="checkbox-label" title="收到新數據時自動捲動至底部">
           <input type="checkbox" id="chk-rx-autoscroll" checked />
-          <span>自動捲動</span>
+          <span data-i18n="rx.autoScroll">自動捲動</span>
         </label>
       </div>
       <div class="sidebar-check-row">
         <label class="checkbox-label" title="在每一列顯示收發時間戳記 (HH:MM:SS.mmm) 與 RX/TX 方向標籤">
           <input type="checkbox" id="chk-show-timestamp" checked />
-          <span>時間戳記</span>
+          <span data-i18n="rx.timestamp">時間戳記</span>
         </label>
         <label class="checkbox-label" title="在接收視圖中同步穿插顯示發送 (TX) 的數據幀與發送時間戳">
           <input type="checkbox" id="chk-show-tx-inline" checked />
-          <span>顯示 TX</span>
+          <span data-i18n="rx.showTx">顯示 TX</span>
         </label>
       </div>
 
       <div class="param-group">
-        <label for="sel-frame-rule">斷幀模式</label>
+        <label for="sel-frame-rule" data-i18n="rx.frameRule">斷幀模式</label>
         <select id="sel-frame-rule" title="選擇自動斷幀判斷模式">
-          <option value="timeout_maxlen" selected>超時 + 最大幀長</option>
-          <option value="delimiter">結尾碼 + 超時</option>
-          <option value="fixed_len">純固定幀長</option>
+          <option value="timeout_maxlen" selected data-i18n="rx.ruleTimeout">超時 + 最大幀長</option>
+          <option value="delimiter" data-i18n="rx.ruleDelim">結尾碼 + 超時</option>
+          <option value="fixed_len" data-i18n="rx.ruleFixed">純固定幀長</option>
         </select>
       </div>
 
       <div class="param-group" id="wrap-frame-timeout">
-        <label for="inp-frame-timeout">超時時間</label>
+        <label for="inp-frame-timeout" data-i18n="rx.timeout">超時時間</label>
         <div class="sidebar-input-unit">
           <input
             type="number"
@@ -356,7 +358,7 @@
       </div>
 
       <div class="param-group" id="wrap-frame-delim" style="display: none;">
-        <label for="inp-frame-delim">結尾特徵</label>
+        <label for="inp-frame-delim" data-i18n="rx.delim">結尾特徵</label>
         <input
           type="text"
           id="inp-frame-delim"
@@ -367,7 +369,7 @@
       </div>
 
       <div class="param-group" id="wrap-frame-maxlen">
-        <label for="inp-frame-maxlen" id="lbl-frame-maxlen">最大幀長</label>
+        <label for="inp-frame-maxlen" id="lbl-frame-maxlen" data-i18n="rx.maxLen">最大幀長</label>
         <div class="sidebar-input-unit">
           <input
             type="number"
@@ -383,22 +385,22 @@
       </div>
 
       <div class="param-group">
-        <label for="sel-frame-layout">排列方式</label>
+        <label for="sel-frame-layout" data-i18n="rx.layout">排列方式</label>
         <select id="sel-frame-layout" title="選擇排列方式：每幀一行不折行（超過16B也不換行，方便上下對齊比較）或固定每行 16/32 Bytes">
-          <option value="frame_single" selected>每幀一行(不折行)</option>
-          <option value="continuous_16">固定16B連續</option>
-          <option value="continuous_32">固定32B連續</option>
-          <option value="frame_wrap16">每幀換行(16B折)</option>
+          <option value="frame_single" selected data-i18n="rx.layoutSingle">每幀一行(不折行)</option>
+          <option value="continuous_16" data-i18n="rx.layoutCont16">固定16B連續</option>
+          <option value="continuous_32" data-i18n="rx.layoutCont32">固定32B連續</option>
+          <option value="frame_wrap16" data-i18n="rx.layoutWrap16">每幀換行(16B折)</option>
         </select>
       </div>
 
-      <button type="button" id="btn-rx-pause" class="tool-btn sidebar-pause-btn" title="暫停更新接收畫面（背景仍持續接收，取消暫停後立即渲染所有累積幀並繼續捲動）">⏸ 暫停畫面</button>
+      <button type="button" id="btn-rx-pause" class="tool-btn sidebar-pause-btn" data-i18n="rx.pause" title="暫停更新接收畫面（背景仍持續接收，取消暫停後立即渲染所有累積幀並繼續捲動）">⏸ 暫停畫面</button>
     </div>
 
     <div class="toolbar-divider"></div>
 
     <!-- Hardware Control Lines (Moved from statusbar so RX/TX counters never cause jitter) -->
-    <div class="sidebar-section-title">流控訊號線</div>
+    <div class="sidebar-section-title" data-i18n="lines.title">流控訊號線</div>
     <div class="sidebar-lines">
       <div class="sidebar-lines-row">
         <button class="line-toggle" id="btn-line-dtr" title="點擊切換 DTR 輸出電位">
@@ -440,21 +442,21 @@
     <section class="pane rx-pane" id="rx-pane">
       <div class="pane-header">
         <div class="pane-title">
-          <span>接收區</span>
+          <span data-i18n="rx.paneTitle">接收區</span>
           <span class="frame-count-tag" id="rx-frame-count">0 幀</span>
         </div>
         <div class="pane-controls">
           <div class="seg-group" id="rx-mode-group">
-            <button class="seg-btn active" data-mode="dual" title="AccessPort 經典 Hex + ASCII 並排顯示">Hex+ASCII</button>
-            <button class="seg-btn" data-mode="hex" title="僅顯示十六進位">純Hex</button>
-            <button class="seg-btn" data-mode="text" title="純文字終端顯示">純文字</button>
-            <button class="seg-btn" data-mode="packets" title="顯示每次收發封包時間戳記與方向（滾動日誌）">日誌</button>
-            <button class="seg-btn" data-mode="fixed" title="PCAN-View 經典固定行模式：以 CAN ID / 幀在同一行覆蓋更新，顯示最新數據、計數與週期時間">固定(Fixed)</button>
+            <button class="seg-btn active" data-mode="dual" data-i18n="rx.modeDual" title="AccessPort 經典 Hex + ASCII 並排顯示">Hex+ASCII</button>
+            <button class="seg-btn" data-mode="hex" data-i18n="rx.modeHex" title="僅顯示十六進位">純Hex</button>
+            <button class="seg-btn" data-mode="text" data-i18n="rx.modeText" title="純文字終端顯示">純文字</button>
+            <button class="seg-btn" data-mode="packets" data-i18n="rx.modePackets" title="顯示每次收發封包時間戳記與方向（滾動日誌）">日誌</button>
+            <button class="seg-btn" data-mode="fixed" data-i18n="rx.modeFixed" title="PCAN-View 經典固定行模式：以 CAN ID / 幀在同一行覆蓋更新，顯示最新數據、計數與週期時間">固定(Fixed)</button>
           </div>
-          <button id="btn-copy-rx-hex" class="mini-btn" title="複製接收區 Hex">複製Hex</button>
-          <button id="btn-copy-rx-text" class="mini-btn" title="複製接收區文字">複製文字</button>
-          <button id="btn-save-rx-log" class="mini-btn" title="儲存接收區資料（含時間戳記、方向與 Hex/ASCII）">儲存日誌</button>
-          <button id="btn-clear-rx" class="mini-btn" title="清空接收緩衝區">清空接收</button>
+          <button id="btn-copy-rx-hex" class="mini-btn" data-i18n="rx.copyHex" title="複製接收區 Hex">複製Hex</button>
+          <button id="btn-copy-rx-text" class="mini-btn" data-i18n="rx.copyText" title="複製接收區文字">複製文字</button>
+          <button id="btn-save-rx-log" class="mini-btn" data-i18n="rx.saveLog" title="儲存接收區資料（含時間戳記、方向與 Hex/ASCII）">儲存日誌</button>
+          <button id="btn-clear-rx" class="mini-btn" data-i18n="rx.clear" title="清空接收緩衝區">清空接收</button>
         </div>
       </div>
 
@@ -478,14 +480,14 @@
           <table class="fixed-table" id="fixed-table">
             <thead>
               <tr>
-                <th class="th-id">CAN ID / 識別</th>
-                <th class="th-type">類型</th>
+                <th class="th-id" data-i18n="rx.thId">CAN ID / 識別</th>
+                <th class="th-type" data-i18n="rx.thType">類型</th>
                 <th class="th-dlc">DLC</th>
-                <th class="th-data">數據 (Data Hex)</th>
+                <th class="th-data" data-i18n="rx.thData">數據 (Data Hex)</th>
                 <th class="th-ascii">ASCII</th>
-                <th class="th-count">計數</th>
-                <th class="th-cycle">週期 (ms)</th>
-                <th class="th-time">時間</th>
+                <th class="th-count" data-i18n="rx.thCount">計數</th>
+                <th class="th-cycle" data-i18n="rx.thCycle">週期 (ms)</th>
+                <th class="th-time" data-i18n="rx.thTime">時間</th>
               </tr>
             </thead>
             <tbody id="fixed-table-body"></tbody>
@@ -495,8 +497,8 @@
 
       <!-- Dedicated Bottom Cursor & Frame Inspector Bar (Never overlaps header controls) -->
       <div class="rx-inspector-bar">
-        <span class="inspector-label">游標檢視：</span>
-        <span class="inspector-val" id="rx-selection-info">滑鼠指向或點擊任一 Byte 以檢視位址、所屬數據幀、Hex / Dec / Bin 與 ASCII 資訊</span>
+        <span class="inspector-label" data-i18n="rx.inspectorLabel">游標檢視：</span>
+        <span class="inspector-val" id="rx-selection-info" data-i18n="rx.inspectorHint">滑鼠指向或點擊任一 Byte 以檢視位址、所屬數據幀、Hex / Dec / Bin 與 ASCII 資訊</span>
       </div>
     </section>
 
@@ -509,14 +511,14 @@
     <section class="pane tx-pane" id="tx-pane">
       <div class="pane-header tx-header">
         <div class="tx-tabs">
-          <button class="tx-tab active" data-txtab="editor">主發送區 (Hex / ASCII 同步編輯)</button>
-          <button class="tx-tab" data-txtab="datalist">多組快捷發送 (CharList)</button>
+          <button class="tx-tab active" data-txtab="editor" data-i18n="tx.tabEditor">主發送區 (Hex / ASCII 同步編輯)</button>
+          <button class="tx-tab" data-txtab="datalist" data-i18n="tx.tabDatalist">多組快捷發送 (CharList)</button>
         </div>
 
         <div class="pane-controls" id="tx-editor-controls">
           <!-- SCPI Command Palette Dropdown -->
           <div class="scpi-combo" id="scpi-combo">
-            <button type="button" id="btn-scpi-menu" class="mini-btn scpi-btn" title="選擇常用的 SCPI 標準儀器指令填入發送區">SCPI 指令 ▾</button>
+            <button type="button" id="btn-scpi-menu" class="mini-btn scpi-btn" data-i18n="tx.scpiBtn" title="選擇常用的 SCPI 標準儀器指令填入發送區">SCPI 指令 ▾</button>
             <div class="scpi-menu hidden" id="scpi-menu">
               <div class="scpi-menu-header">IEEE 488.2 通用查詢</div>
               <button type="button" data-scpi="*IDN?">*IDN? - 查詢設備資訊</button>
@@ -553,9 +555,9 @@
 
           <label class="checkbox-label" title="傳送時自動在結尾附加 CR LF (0D 0A)">
             <input type="checkbox" id="chk-tx-crlf" />
-            <span>附加 \r\n (0D 0A)</span>
+            <span data-i18n="tx.appendCrlf">附加 \r\n (0D 0A)</span>
           </label>
-          <button id="btn-clear-tx" class="mini-btn" title="清空發送緩衝區">清空發送</button>
+          <button id="btn-clear-tx" class="mini-btn" data-i18n="tx.clear" title="清空發送緩衝區">清空發送</button>
           <span class="byte-pill" id="tx-length-pill">長度: 0 Bytes</span>
         </div>
       </div>
@@ -566,10 +568,10 @@
           <!-- Left: Hex Byte Editor -->
           <div class="tx-subpane tx-hex-subpane">
             <div class="subpane-bar">
-              <span>十六進位編輯區 (Hex) — 00~0F 拆格對齊</span>
+              <span data-i18n="tx.hexBarTitle">十六進位編輯區 (Hex) — 00~0F 拆格對齊</span>
               <div class="subpane-bar-right">
-                <span class="subpane-hint" id="tx-hex-status">格式正常</span>
-                <button type="button" id="btn-tx-hex-view" class="mini-btn" title="切換「拆格編輯」或「純文字編輯」">文字模式</button>
+                <span class="subpane-hint" id="tx-hex-status" data-i18n="tx.hexFormatOk">格式正常</span>
+                <button type="button" id="btn-tx-hex-view" class="mini-btn" data-i18n="tx.hexViewText" title="切換「拆格編輯」或「純文字編輯」">文字模式</button>
               </div>
             </div>
             <div class="tx-hex-grid-wrap" id="tx-hex-grid-wrap">
@@ -585,6 +587,7 @@
                 id="tx-hex-input"
                 class="mono-textarea hex-textarea"
                 spellcheck="false"
+                data-i18n-placeholder="tx.hexPlaceholder"
                 placeholder="輸入十六進位 (例如: 41 42 43 0D 0A)..."
               ></textarea>
             </div>
@@ -593,13 +596,14 @@
           <!-- Right: ASCII / UTF-8 Text Editor -->
           <div class="tx-subpane tx-ascii-subpane">
             <div class="subpane-bar">
-              <span>字元編輯區 (ASCII / UTF-8) — 與左側 Hex 即時雙向同步</span>
-              <span class="subpane-hint">非列印字元在預覽中顯示為 '.'</span>
+              <span data-i18n="tx.asciiBarTitle">字元編輯區 (ASCII / UTF-8) — 與左側 Hex 即時雙向同步</span>
+              <span class="subpane-hint" data-i18n="tx.asciiBarHint">非列印字元在預覽中顯示為 '.'</span>
             </div>
             <textarea
               id="tx-ascii-input"
               class="mono-textarea ascii-textarea"
               spellcheck="false"
+              data-i18n-placeholder="tx.asciiPlaceholder"
               placeholder="在此輸入文字，左側 Hex 將即時同步更新..."
             ></textarea>
           </div>
@@ -609,22 +613,22 @@
       <!-- Tab 2: AccessPort Multi-Send DataList (CharList) -->
       <div class="tx-tab-body hidden" id="tx-tab-datalist">
         <div class="datalist-toolbar">
-          <button id="btn-add-row" class="mini-btn">+ 新增指令列</button>
-          <button id="btn-load-scpi-template" class="mini-btn" title="載入儀器常見 SCPI 測試與巡檢指令範本至清單">載入 SCPI 範本</button>
-          <button id="btn-import-datalist" class="mini-btn" title="從 Serial Assistant ExCommand (.ini) 檔案匯入指令列表">匯入 (.ini)</button>
+          <button id="btn-add-row" class="mini-btn" data-i18n="datalist.addRow">+ 新增指令列</button>
+          <button id="btn-load-scpi-template" class="mini-btn" data-i18n="datalist.loadScpi" title="載入儀器常見 SCPI 測試與巡檢指令範本至清單">載入 SCPI 範本</button>
+          <button id="btn-import-datalist" class="mini-btn" data-i18n="datalist.importIni" title="從 Serial Assistant ExCommand (.ini) 檔案匯入指令列表">匯入 (.ini)</button>
           <input type="file" id="inp-import-datalist" accept=".ini,.txt" style="display: none;" />
-          <button id="btn-export-datalist" class="mini-btn" title="將目前指令列表匯出為 Serial Assistant ExCommand (.ini) 檔案">匯出 (.ini)</button>
-          <span class="datalist-tip">提示：勾選項目後開啟下方「定時發送」，即可按順序循環發送多組指令。</span>
+          <button id="btn-export-datalist" class="mini-btn" data-i18n="datalist.exportIni" title="將目前指令列表匯出為 Serial Assistant ExCommand (.ini) 檔案">匯出 (.ini)</button>
+          <span class="datalist-tip" data-i18n="datalist.tip">提示：勾選項目後開啟下方「定時發送」，即可按順序循環發送多組指令。</span>
         </div>
         <div class="datalist-table-wrap">
           <table class="datalist-table">
             <thead>
               <tr>
-                <th style="width: 42px;">循環</th>
-                <th style="width: 140px;">備註名稱</th>
-                <th style="width: 90px;">格式</th>
-                <th>發送內容 (Hex 或 ASCII)</th>
-                <th style="width: 90px;">操作</th>
+                <th style="width: 42px;" data-i18n="datalist.colLoop">循環</th>
+                <th style="width: 140px;" data-i18n="datalist.colName">備註名稱</th>
+                <th style="width: 90px;" data-i18n="datalist.colFormat">格式</th>
+                <th data-i18n="datalist.colPayload">發送內容 (Hex 或 ASCII)</th>
+                <th style="width: 90px;" data-i18n="datalist.colAction">操作</th>
               </tr>
             </thead>
             <tbody id="datalist-tbody"></tbody>
@@ -638,10 +642,10 @@
           <label class="checkbox-label auto-send-toggle" title="啟動 / 停止週期定時發送">
             <input type="checkbox" id="chk-auto-send" />
             <span class="led" id="led-auto-send"></span>
-            <span>定時發送</span>
+            <span data-i18n="auto.toggle">定時發送</span>
           </label>
           <span class="auto-sep">|</span>
-          <label class="auto-sub-label" for="inp-auto-interval">週期</label>
+          <label class="auto-sub-label" for="inp-auto-interval" data-i18n="auto.interval">週期</label>
           <input
             type="number"
             id="inp-auto-interval"
@@ -653,7 +657,7 @@
           />
           <span class="unit">ms</span>
           <span class="auto-sep">|</span>
-          <label class="auto-sub-label" for="inp-auto-max-count" title="設定發送次數上限，輸入 0 代表無限循環 (∞)">次數</label>
+          <label class="auto-sub-label" for="inp-auto-max-count" data-i18n="auto.count" title="設定發送次數上限，輸入 0 代表無限循環 (∞)">次數</label>
           <input
             type="number"
             id="inp-auto-max-count"
@@ -671,7 +675,7 @@
             <path d="M22 2L11 13"></path>
             <path d="M22 2L15 22L11 13L2 9L22 2Z" fill="currentColor" fill-opacity="0.18"></path>
           </svg>
-          <span class="plane-title">傳送</span>
+          <span class="plane-title" data-i18n="tx.sendBtn">傳送</span>
         </button>
       </div>
     </section>
@@ -682,18 +686,25 @@
   <footer class="statusbar">
     <div class="status-section status-port" id="status-port-text">
       <span class="status-dot closed" id="status-dot"></span>
-      <span id="status-msg">就緒 — 串口未開啟</span>
+      <span id="status-msg" data-i18n="status.ready">就緒 — 串口未開啟</span>
     </div>
 
     <!-- RX / TX Byte & Packet Counters -->
     <div class="status-section status-counters">
-      <span class="counter-item">RX: <strong id="count-rx-bytes">0</strong> B (<span id="count-rx-pkts">0</span> 筆)</span>
+      <span class="counter-item">RX: <strong id="count-rx-bytes">0</strong> B (<span id="count-rx-pkts">0</span> <span class="pkt-unit" data-i18n="status.pktUnit">筆</span>)</span>
       <span class="line-sep">|</span>
-      <span class="counter-item">TX: <strong id="count-tx-bytes">0</strong> B (<span id="count-tx-pkts">0</span> 筆)</span>
-      <button id="btn-reset-counts" class="status-reset-btn" title="歸零收發計數">歸零</button>
+      <span class="counter-item">TX: <strong id="count-tx-bytes">0</strong> B (<span id="count-tx-pkts">0</span> <span class="pkt-unit" data-i18n="status.pktUnit">筆</span>)</span>
+      <button id="btn-reset-counts" class="status-reset-btn" data-i18n="status.reset" data-i18n-title="status.resetTitle" title="歸零收發計數">歸零</button>
     </div>
   </footer>
 
+  <script src="js/i18n.js"></script>
+  <script src="js/codec.js"></script>
+  <script src="js/framer.js"></script>
+  <script src="js/can-parser.js"></script>
+  <script src="js/excommand.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/session-model.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
