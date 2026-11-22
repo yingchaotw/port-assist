@@ -511,11 +511,15 @@
     <section class="pane tx-pane" id="tx-pane">
       <div class="pane-header tx-header">
         <div class="tx-tabs">
-          <button class="tx-tab active" data-txtab="editor" data-i18n="tx.tabEditor">主發送區 (Hex / ASCII 同步編輯)</button>
-          <button class="tx-tab" data-txtab="datalist" data-i18n="tx.tabDatalist">多組快捷發送 (CharList)</button>
+          <button class="tx-tab active" data-txtab="editor" data-i18n="tx.tabEditor">主發送區</button>
+          <button class="tx-tab" data-txtab="datalist" data-i18n="tx.tabDatalist">快捷發送 (CharList)</button>
         </div>
 
         <div class="pane-controls" id="tx-editor-controls">
+          <div class="seg-group" id="tx-mode-group">
+            <button type="button" class="seg-btn active" data-txmode="hex">HEX</button>
+            <button type="button" class="seg-btn" data-txmode="ascii">ASCII</button>
+          </div>
           <!-- SCPI Command Palette Dropdown -->
           <div class="scpi-combo" id="scpi-combo">
             <button type="button" id="btn-scpi-menu" class="mini-btn scpi-btn" data-i18n="tx.scpiBtn" title="選擇常用的 SCPI 標準儀器指令填入發送區">SCPI 指令 ▾</button>
@@ -566,7 +570,7 @@
       <div class="tx-tab-body" id="tx-tab-editor">
         <div class="tx-dual-editor">
           <!-- Left: Hex Byte Editor -->
-          <div class="tx-subpane tx-hex-subpane">
+          <div class="tx-subpane tx-hex-subpane" id="tx-hex-subpane">
             <div class="subpane-bar">
               <span data-i18n="tx.hexBarTitle">十六進位編輯區 (Hex) — 00~0F 拆格對齊</span>
               <div class="subpane-bar-right">
@@ -594,7 +598,7 @@
           </div>
 
           <!-- Right: ASCII / UTF-8 Text Editor -->
-          <div class="tx-subpane tx-ascii-subpane">
+          <div class="tx-subpane tx-ascii-subpane hidden" id="tx-ascii-subpane">
             <div class="subpane-bar">
               <span data-i18n="tx.asciiBarTitle">字元編輯區 (ASCII / UTF-8) — 與左側 Hex 即時雙向同步</span>
               <span class="subpane-hint" data-i18n="tx.asciiBarHint">非列印字元在預覽中顯示為 '.'</span>
@@ -626,8 +630,9 @@
               <tr>
                 <th style="width: 42px;" data-i18n="datalist.colLoop">循環</th>
                 <th style="width: 140px;" data-i18n="datalist.colName">備註名稱</th>
-                <th style="width: 90px;" data-i18n="datalist.colFormat">格式</th>
+                <th style="width: 44px; text-align: center;" data-i18n="datalist.colFormat">HEX</th>
                 <th data-i18n="datalist.colPayload">發送內容 (Hex 或 ASCII)</th>
+                <th style="width: 82px;" data-i18n="datalist.colInterval">週期(ms)</th>
                 <th style="width: 90px;" data-i18n="datalist.colAction">操作</th>
               </tr>
             </thead>

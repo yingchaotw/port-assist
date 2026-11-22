@@ -175,6 +175,10 @@
     txTabs: document.querySelectorAll(".tx-tab"),
     txTabEditor: document.getElementById("tx-tab-editor"),
     txTabDatalist: document.getElementById("tx-tab-datalist"),
+    txEditorControls: document.getElementById("tx-editor-controls"),
+    txModeGroup: document.getElementById("tx-mode-group"),
+    txHexSubpane: document.getElementById("tx-hex-subpane"),
+    txAsciiSubpane: document.getElementById("tx-ascii-subpane"),
     scpiCombo: document.getElementById("scpi-combo"),
     btnScpiMenu: document.getElementById("btn-scpi-menu"),
     scpiMenu: document.getElementById("scpi-menu"),
@@ -229,7 +233,7 @@
       rafPending = false;
       const sess = getActiveSession();
       if (!sess) return;
-      el.rxFrameCount.textContent = `${sess.rxFrames.length} 幀`;
+      el.rxFrameCount.textContent = t("status.frameCount", { count: sess.rxFrames.length });
       updateCountersUi(sess);
       if (!sess.rxPaused) {
         renderRxView(sess, pendingAutoscroll);
@@ -267,7 +271,7 @@
       }
       return summary;
     }
-    return `分頁 #${sess.seq} (${summary})`;
+    return `${getLang() === "en" ? "Tab" : "分頁"} #${sess.seq} (${summary})`;
   }
 
   function renderSessionTabs() {
@@ -482,7 +486,7 @@
     el.chkShowTimestamp.checked = sess.showTimestamp !== false;
     el.chkShowTxInline.checked = sess.showTxInline !== false;
     el.rxViewport.classList.toggle("show-ts", sess.showTimestamp !== false);
-    el.rxFrameCount.textContent = `${sess.rxFrames.length} 幀`;
+    el.rxFrameCount.textContent = t("status.frameCount", { count: sess.rxFrames.length });
 
     el.rxModeGroup.querySelectorAll(".seg-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.mode === sess.rxMode);
@@ -493,6 +497,10 @@
     });
     el.txTabEditor.classList.toggle("hidden", sess.txTab !== "editor");
     el.txTabDatalist.classList.toggle("hidden", sess.txTab !== "datalist");
+    if (el.txEditorControls) {
+      el.txEditorControls.classList.toggle("hidden", sess.txTab !== "editor");
+    }
+    updateTxModeUi(sess);
 
     isSyncingTx = true;
     el.txHexInput.value = sess.txHexText;
@@ -1664,6 +1672,33 @@
     isSyncingTx = false;
   }
 
+  function updateTxModeUi(sess) {
+    if (!sess || sess.id !== activeSessionId) return;
+    const mode = sess.txMode === "ascii" ? "ascii" : "hex";
+    if (el.txModeGroup) {
+      el.txModeGroup.querySelectorAll(".seg-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.txmode === mode);
+      });
+    }
+    if (el.txHexSubpane) {
+      el.txHexSubpane.classList.toggle("hidden", mode !== "hex");
+    }
+    if (el.txAsciiSubpane) {
+      el.txAsciiSubpane.classList.toggle("hidden", mode !== "ascii");
+    }
+  }
+
+  if (el.txModeGroup) {
+    el.txModeGroup.addEventListener("click", (e) => {
+      const btn = e.target.closest(".seg-btn[data-txmode]");
+      if (!btn) return;
+      const sess = getActiveSession();
+      if (!sess) return;
+      sess.txMode = btn.dataset.txmode === "ascii" ? "ascii" : "hex";
+      updateTxModeUi(sess);
+    });
+  }
+
   if (el.btnTxHexView) {
     el.btnTxHexView.addEventListener("click", () => {
       txHexGridMode = !txHexGridMode;
@@ -2016,7 +2051,9 @@
   // parseDataListRowPayload imported from js/excommand.js
 
   async function sendNextDataListItemForSession(sess) {
-    const enabledRows = sess.datalist.filter((r) => r.enabled && r.payload.trim().length > 0);
+    const enabledRows = sess.datalist.filter(
+      (r) => r.enabled && r.payload.trim().length > 0 && (!r.intervalMs || r.intervalMs <= 0)
+    );
     if (enabledRows.length === 0) {
       setSessionStatus(sess, "快捷發送列表中沒有勾選的項目");
       return;
@@ -2048,14 +2085,14 @@
         <td>
           <input type="text" class="dl-name" data-idx="${index}" value="${escapeHtmlAttr(row.name)}" />
         </td>
-        <td>
-          <select class="dl-fmt" data-idx="${index}">
-            <option value="HEX" ${row.format === "HEX" ? "selected" : ""}>HEX</option>
-            <option value="ASCII" ${row.format === "ASCII" ? "selected" : ""}>ASCII</option>
-          </select>
+        <td style="text-align:center;">
+          <input type="checkbox" class="dl-fmt-chk" data-idx="${index}" ${row.format === "HEX" ? "checked" : ""} title="HEX (unchecked = ASCII)" />
         </td>
         <td>
           <input type="text" class="dl-payload" data-idx="${index}" value="${escapeHtmlAttr(row.payload)}" />
+        </td>
+        <td>
+          <input type="number" class="dl-interval" data-idx="${index}" min="0" max="3600000" step="50" value="${row.intervalMs ?? 0}" title="${t("datalist.intervalTitle")}" style="width: 68px;" />
         </td>
         <td>
           <button class="mini-btn dl-send" data-idx="${index}">${t("datalist.sendBtn")}</button>
@@ -2075,10 +2112,28 @@
       sess.datalist[idx].enabled = e.target.checked;
     } else if (e.target.classList.contains("dl-name")) {
       sess.datalist[idx].name = e.target.value;
-    } else if (e.target.classList.contains("dl-fmt")) {
-      sess.datalist[idx].format = e.target.value;
+    } else if (e.target.classList.contains("dl-fmt-chk")) {
+      const row = sess.datalist[idx];
+      const bytes = parseDataListRowPayload(row);
+      const toHex = e.target.checked;
+      row.format = toHex ? "HEX" : "ASCII";
+      if (toHex) {
+        row.payload = bytesToHexString(bytes, false);
+      } else {
+        row.payload = bytesToUtf8Text(bytes)
+          .replace(/\r/g, "\\r")
+          .replace(/\n/g, "\\n")
+          .replace(/\t/g, "\\t");
+      }
+      const tr = e.target.closest("tr");
+      const payloadInp = tr && tr.querySelector(".dl-payload");
+      if (payloadInp) {
+        payloadInp.value = row.payload;
+      }
     } else if (e.target.classList.contains("dl-payload")) {
       sess.datalist[idx].payload = e.target.value;
+    } else if (e.target.classList.contains("dl-interval")) {
+      sess.datalist[idx].intervalMs = Math.max(0, parseInt(e.target.value, 10) || 0);
     }
   });
 
@@ -2131,6 +2186,29 @@
     }
   }
 
+  async function executeCustomRowStep(sess, row) {
+    if (!sess || !sess.autoSendEnabled) return;
+    const bytes = parseDataListRowPayload(row);
+    await sendPayloadBytesForSession(sess, bytes);
+
+    if (!sess.isOpen) {
+      stopAutoSendForSession(sess);
+      return;
+    }
+
+    sess.autoSendCurrentCount += 1;
+    updateAutoSendUi(sess);
+
+    if (sess.autoSendMaxCount > 0 && sess.autoSendCurrentCount >= sess.autoSendMaxCount) {
+      const doneCount = sess.autoSendCurrentCount;
+      stopAutoSendForSession(sess);
+      setSessionStatus(
+        sess,
+        `[定時發送完成] 已達設定上限 ${doneCount} / ${sess.autoSendMaxCount} 次，自動停止`
+      );
+    }
+  }
+
   async function startAutoSendForSession(sess) {
     if (!sess) return;
     stopAutoSendForSession(sess);
@@ -2149,9 +2227,48 @@
     sess.autoSendMaxCount = maxCount;
     sess.autoSendCurrentCount = 0;
     sess.autoSendEnabled = true;
+    sess.autoSendRowTimers = [];
 
     updateAutoSendUi(sess);
     renderSessionTabs();
+
+    if (sess.txTab === "datalist") {
+      const customRows = sess.datalist.filter(
+        (r) => r.enabled && r.payload.trim().length > 0 && (r.intervalMs || 0) > 0
+      );
+      const sharedRows = sess.datalist.filter(
+        (r) => r.enabled && r.payload.trim().length > 0 && (!r.intervalMs || r.intervalMs <= 0)
+      );
+
+      for (let i = 0; i < customRows.length; i++) {
+        const row = customRows[i];
+        const period = Math.max(5, row.intervalMs);
+        const staggerMs = i * 25;
+        const startRowLoop = () => {
+          if (!sess.autoSendEnabled) return;
+          executeCustomRowStep(sess, row);
+          const tid = setInterval(() => {
+            executeCustomRowStep(sess, row);
+          }, period);
+          sess.autoSendRowTimers.push(tid);
+        };
+        if (staggerMs === 0) {
+          startRowLoop();
+        } else {
+          const delayTid = setTimeout(startRowLoop, staggerMs);
+          sess.autoSendRowTimers.push(delayTid);
+        }
+      }
+
+      if (sharedRows.length > 0 || customRows.length === 0) {
+        await executeTimedSendStep(sess);
+        if (!sess.autoSendEnabled) return;
+        sess.autoSendTimer = setInterval(() => {
+          executeTimedSendStep(sess);
+        }, sess.autoSendInterval);
+      }
+      return;
+    }
 
     await executeTimedSendStep(sess);
     if (!sess.autoSendEnabled) return;
@@ -2166,6 +2283,13 @@
     if (sess.autoSendTimer) {
       clearInterval(sess.autoSendTimer);
       sess.autoSendTimer = null;
+    }
+    if (Array.isArray(sess.autoSendRowTimers)) {
+      for (const tid of sess.autoSendRowTimers) {
+        clearTimeout(tid);
+        clearInterval(tid);
+      }
+      sess.autoSendRowTimers = [];
     }
     sess.autoSendEnabled = false;
     updateAutoSendUi(sess);
@@ -2240,7 +2364,7 @@
     sess.selectedRxIndex = -1;
     el.rxSelectionInfo.textContent =
       "滑鼠指向或點擊任一 Byte 以檢視位址、所屬數據幀、Hex / Dec / Bin 與 ASCII 資訊";
-    el.rxFrameCount.textContent = "0 幀";
+    el.rxFrameCount.textContent = t("status.frameCount", { count: 0 });
     el.rxHexRuler.querySelectorAll(".col-active").forEach((n) => n.classList.remove("col-active"));
     updateCountersUi(sess);
     renderRxView(sess, false);
@@ -2599,6 +2723,9 @@
       el.txTabs.forEach((t) => t.classList.toggle("active", t === tab));
       el.txTabEditor.classList.toggle("hidden", sess.txTab !== "editor");
       el.txTabDatalist.classList.toggle("hidden", sess.txTab !== "datalist");
+      if (el.txEditorControls) {
+        el.txEditorControls.classList.toggle("hidden", sess.txTab !== "editor");
+      }
     });
   });
 
@@ -2615,6 +2742,8 @@
     const sess = getActiveSession();
     if (sess) {
       setTxEditorBytesForSession(sess, utf8TextToBytes(scpiCmd));
+      sess.txMode = "ascii";
+      updateTxModeUi(sess);
       el.chkTxCrlf.checked = true;
       sess.txCrlf = true;
       setSessionStatus(sess, `已填入 SCPI 指令: ${scpiCmd} (已自動勾選附加 \\r\\n)`);
@@ -2920,7 +3049,7 @@
     }
     const sess = getActiveSession();
     if (sess) {
-      updatePortToggleUi(sess);
+      updatePortUi(sess);
       updateRxPauseUi(sess);
       renderSessionTabs();
       updateTxGutterAndPill(sess);
@@ -2938,7 +3067,7 @@
         el.statusMsg.textContent = sess.statusText;
       }
       renderDataList(sess);
-      renderActiveSessionView(false);
+      renderRxView(sess, false);
     }
     if (syncNativeMenu || getLang() !== "zh-Hant") {
       const invoke = getTauriInvoke();
@@ -3274,6 +3403,7 @@
 
     renderSessionTabs();
     syncSessionToDom(firstSession);
+    refreshLanguageUi(false);
     await initBackendListeners();
   }
 

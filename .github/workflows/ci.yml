@@ -34,12 +34,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
-      - name: Run Rust tests
-        working-directory: src-tauri
-        run: cargo test
+      - name: Run Rust workspace tests
+        run: cargo test --workspace
 
       - name: Build debug binary
         working-directory: src-tauri

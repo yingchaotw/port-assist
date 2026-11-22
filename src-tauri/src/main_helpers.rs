@@ -6,6 +6,7 @@ use crate::pcan::{
     PcanConfigDto, PcanTxFrameDto,
 };
 use crate::serial::{list_serial_ports_internal, open_serial_port_internal, SerialConfigDto};
+use port_assist_core::parse_hex_string;
 use serde::Deserialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -240,22 +241,4 @@ pub fn send_pcan_from_api(
     });
 
     Ok(len)
-}
-
-fn parse_hex_string(input: &str) -> Result<Vec<u8>, String> {
-    let clean: String = input
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != ',' && *c != '-')
-        .collect();
-    let clean = clean.trim_start_matches("0x").trim_start_matches("0X");
-    if clean.len() % 2 != 0 {
-        return Err("Hex 字符數量必須為偶數".to_string());
-    }
-    let mut bytes = Vec::with_capacity(clean.len() / 2);
-    for i in (0..clean.len()).step_by(2) {
-        let b = u8::from_str_radix(&clean[i..i + 2], 16)
-            .map_err(|e| format!("無效的 Hex 格式 '{}': {}", &clean[i..i + 2], e))?;
-        bytes.push(b);
-    }
-    Ok(bytes)
 }

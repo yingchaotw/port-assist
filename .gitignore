@@ -1,4 +1,5 @@
 # Rust build artifacts
+target/
 src-tauri/target/
 
 # WebView2 runtime user data

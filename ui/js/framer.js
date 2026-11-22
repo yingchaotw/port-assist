@@ -135,12 +135,107 @@
     }
   }
 
+  function deriveFixedFrameIdentity(dir, frameBytes) {
+    const prefix = dir || "RX";
+    if (!frameBytes || frameBytes.length === 0) {
+      return { key: `${prefix}_EMPTY`, idStr: `[${prefix}]`, rawId: prefix === "TX" ? 1 : 0 };
+    }
+
+    const sampleLen = Math.min(frameBytes.length, 32);
+    let printableCount = 0;
+    for (let i = 0; i < sampleLen; i++) {
+      const b = frameBytes[i];
+      if ((b >= 0x20 && b <= 0x7e) || b === 0x0d || b === 0x0a || b === 0x09) {
+        printableCount++;
+      }
+    }
+
+    if (printableCount === sampleLen && frameBytes.length >= 2) {
+      const text = codec.bytesToUtf8Text(frameBytes.slice(0, 24)).trim();
+      const tokenMatch = text.match(/^([A-Za-z0-9_+*?#-]{1,12})/);
+      if (tokenMatch) {
+        const tag = tokenMatch[1];
+        let hash = 0;
+        for (let i = 0; i < tag.length; i++) {
+          hash = ((hash << 5) - hash + tag.charCodeAt(i)) | 0;
+        }
+        return {
+          key: `${prefix}_ASC_${tag}`,
+          idStr: `${prefix} ${tag}`,
+          rawId: (prefix === "TX" ? 0x20000000 : 0x10000000) + (hash & 0xfffffff),
+        };
+      }
+    }
+
+    const hdrBytes = frameBytes.slice(0, Math.min(2, frameBytes.length));
+    const hdrHex = hdrBytes.map(codec.toHex2).join(" ");
+    const numericHdr = hdrBytes.length >= 2 ? (hdrBytes[0] << 8) | hdrBytes[1] : hdrBytes[0];
+    return {
+      key: `${prefix}_HEX_${hdrHex}`,
+      idStr: `${prefix} ${hdrHex}`,
+      rawId: (prefix === "TX" ? 0x10000 : 0) + numericHdr,
+    };
+  }
+
+  function upsertFixedMapForFrame(sess, dir, frameBytes, timeStr, perfMs, frameRef) {
+    if (!sess || sess.connType === "pcan") return;
+    if (!sess.fixedMap) sess.fixedMap = new Map();
+
+    const { key, idStr, rawId } = deriveFixedFrameIdentity(dir, frameBytes);
+    const nowPerf = perfMs || (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+    const dataSlice = frameBytes.slice(0, 32);
+
+    if (frameRef && frameRef._fixedKey && frameRef._fixedKey !== key) {
+      const prevEntry = sess.fixedMap.get(frameRef._fixedKey);
+      if (prevEntry && prevEntry.count <= 1) {
+        sess.fixedMap.delete(frameRef._fixedKey);
+      }
+      frameRef._fixedKey = null;
+    }
+
+    const isSameOpenFrame = Boolean(frameRef && frameRef._fixedKey === key);
+    let item = sess.fixedMap.get(key);
+
+    if (!item) {
+      sess.fixedMap.set(key, {
+        key,
+        idStr,
+        rawId,
+        extended: false,
+        rtr: false,
+        typeStr: (sess.connType || "COM").toUpperCase(),
+        dlc: frameBytes.length,
+        data: dataSlice,
+        prevData: [],
+        count: 1,
+        lastPerfMs: nowPerf,
+        cycleMs: 0,
+        timeStr,
+      });
+    } else if (isSameOpenFrame) {
+      item.dlc = frameBytes.length;
+      item.data = dataSlice;
+      item.timeStr = timeStr;
+      item.lastPerfMs = nowPerf;
+    } else {
+      item.count += 1;
+      item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
+      item.lastPerfMs = nowPerf;
+      item.timeStr = timeStr;
+      item.dlc = frameBytes.length;
+      item.prevData = item.data;
+      item.data = dataSlice;
+    }
+
+    if (frameRef) {
+      frameRef._fixedKey = key;
+    }
+  }
+
   function appendChunkIncremental(sess, chunk) {
     const len = chunk.bytes.length;
     if (len === 0) return;
     const dir = chunk.dir || "RX";
-    const nowFallback = () =>
-      typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
 
     if (dir === "TX") {
       sess.packets.push({
@@ -152,38 +247,8 @@
         closed: true,
       });
 
-      if (!sess.fixedMap) sess.fixedMap = new Map();
-      if (sess.connType !== "pcan") {
-        const fixedKey = `${dir}_0`;
-        let item = sess.fixedMap.get(fixedKey);
-        const nowPerf = chunk.perfMs || nowFallback();
-        if (!item) {
-          sess.fixedMap.set(fixedKey, {
-            key: fixedKey,
-            idStr: `[${dir}]`,
-            rawId: 1,
-            extended: false,
-            rtr: false,
-            typeStr: (sess.connType || "COM").toUpperCase(),
-            dlc: len,
-            data: chunk.bytes.slice(0, 32),
-            prevData: [],
-            count: 1,
-            lastPerfMs: nowPerf,
-            cycleMs: 0,
-            timeStr: chunk.timeStr,
-          });
-        } else {
-          item.count += 1;
-          item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
-          item.lastPerfMs = nowPerf;
-          item.timeStr = chunk.timeStr;
-          item.dlc = len;
-          item.prevData = item.data;
-          item.data = chunk.bytes.slice(0, 32);
-        }
-      }
       if (!sess.showTxInline) return;
+      upsertFixedMapForFrame(sess, "TX", chunk.bytes, chunk.timeStr, chunk.perfMs, null);
 
       const startByteCursor = sess.viewBytes.length;
       for (let i = 0; i < len; i++) {
@@ -206,38 +271,6 @@
       }
       incrementalUpdateRowsForFrame(sess, txFrame, 0);
       return;
-    }
-
-    if (!sess.fixedMap) sess.fixedMap = new Map();
-    if (sess.connType !== "pcan") {
-      const fixedKey = "RX_0";
-      let item = sess.fixedMap.get(fixedKey);
-      const nowPerf = chunk.perfMs || nowFallback();
-      if (!item) {
-        sess.fixedMap.set(fixedKey, {
-          key: fixedKey,
-          idStr: "[RX]",
-          rawId: 0,
-          extended: false,
-          rtr: false,
-          typeStr: (sess.connType || "COM").toUpperCase(),
-          dlc: len,
-          data: chunk.bytes.slice(0, 32),
-          prevData: [],
-          count: 1,
-          lastPerfMs: nowPerf,
-          cycleMs: 0,
-          timeStr: chunk.timeStr,
-        });
-      } else {
-        item.count += 1;
-        item.cycleMs = Math.max(0, nowPerf - item.lastPerfMs);
-        item.lastPerfMs = nowPerf;
-        item.timeStr = chunk.timeStr;
-        item.dlc = len;
-        item.prevData = item.data;
-        item.data = chunk.bytes.slice(0, 32);
-      }
     }
 
     const rule = sess.frameRule || "timeout_maxlen";
@@ -345,6 +378,8 @@
         }
 
         incrementalUpdateRowsForFrame(sess, curFrame, prevLen);
+        const frameSlice = sess.viewBytes.slice(curFrame.startIdx, curFrame.startIdx + curFrame.length);
+        upsertFixedMapForFrame(sess, "RX", frameSlice, curFrame.timeStr, curFrame.lastPerfMs, curFrame);
         offset = endOffset;
       }
       return;
@@ -422,6 +457,8 @@
       const frame = touchedFrames[f];
       incrementalUpdateRowsForFrame(sess, frame, frame.prevRenderedLen || 0);
       frame.prevRenderedLen = frame.length;
+      const frameSlice = sess.viewBytes.slice(frame.startIdx, frame.startIdx + frame.length);
+      upsertFixedMapForFrame(sess, "RX", frameSlice, frame.timeStr, frame.lastPerfMs, frame);
     }
   }
 
@@ -433,6 +470,9 @@
     sess.rowSlices = [];
     sess.packets = [];
     sess.rxPktCount = 0;
+    if (sess.connType !== "pcan") {
+      sess.fixedMap = new Map();
+    }
     sess.maxCols = sess.frameLayout === "continuous_32" ? 32 : 16;
 
     for (let i = 0; i < sess.rxRawChunks.length; i++) {

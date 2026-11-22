@@ -1662,23 +1662,29 @@ html[data-theme="dark"] .fixed-table .td-time {
 .tx-header {
   padding-left: 0;
   overflow: visible;
+  height: auto;
+  min-height: 30px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .tx-tabs {
   display: flex;
-  height: 100%;
+  align-items: stretch;
+  min-height: 30px;
 }
 
 .tx-tab {
   border: none;
   border-right: 1px solid var(--border-main);
   background: #cfd6e0;
-  padding: 0 14px;
+  padding: 4px 12px;
   font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
   color: #3b4654;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .tx-tab.active {
@@ -1696,7 +1702,7 @@ html[data-theme="dark"] .fixed-table .td-time {
 .tx-dual-editor {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 56%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -1707,7 +1713,6 @@ html[data-theme="dark"] .fixed-table .td-time {
 }
 
 .tx-hex-subpane {
-  border-right: 1px solid var(--border-main);
 }
 
 .tx-ascii-subpane {

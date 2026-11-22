@@ -36,6 +36,7 @@
 
       rxMode: "dual", // 'dual' | 'hex' | 'text' | 'packets' | 'fixed'
       txTab: "editor", // 'editor' | 'datalist'
+      txMode: "hex", // 'hex' | 'ascii'
       rxBytes: [],
       viewBytes: [],
       rxRawChunks: [],
@@ -80,14 +81,15 @@
       autoSendMaxCount: 0,
       autoSendCurrentCount: 0,
       autoSendTimer: null,
+      autoSendRowTimers: [],
 
       statusText: `分頁 #${seq} 就緒 — 串口未開啟`,
       datalistCursor: 0,
       datalist: [
-        { enabled: true, name: "AT 測試指令", format: "ASCII", payload: "AT+GMR\\r\\n" },
-        { enabled: true, name: "Modbus 讀保持暫存器", format: "HEX", payload: "01 03 00 00 00 02 C4 0B" },
-        { enabled: false, name: "查詢設備狀態", format: "HEX", payload: "AA 55 01 00 00 56" },
-        { enabled: false, name: "心跳封包 (Heartbeat)", format: "ASCII", payload: "PING\\r\\n" },
+        { enabled: true, name: "AT 測試指令", format: "ASCII", payload: "AT+GMR\\r\\n", intervalMs: 0 },
+        { enabled: true, name: "Modbus 讀保持暫存器", format: "HEX", payload: "01 03 00 00 00 02 C4 0B", intervalMs: 0 },
+        { enabled: false, name: "查詢設備狀態", format: "HEX", payload: "AA 55 01 00 00 56", intervalMs: 0 },
+        { enabled: false, name: "心跳封包 (Heartbeat)", format: "ASCII", payload: "PING\\r\\n", intervalMs: 0 },
       ],
     };
   }
@@ -119,6 +121,7 @@
       canTxType: sess.canTxType,
       rxMode: sess.rxMode,
       txTab: sess.txTab,
+      txMode: sess.txMode || "hex",
       rxBytes: sess.rxBytes,
       viewBytes: sess.viewBytes,
       rxRawChunks: sess.rxRawChunks,
